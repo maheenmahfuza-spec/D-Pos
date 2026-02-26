@@ -1,0 +1,5 @@
+{
+  "name": "SportsStock Pro",
+  "description": "A comprehensive inventory and sales management system for sports item businesses, featuring role-based access for Cashiers, Admins, and Developers.",
+  "requestFramePermissions": []
+}

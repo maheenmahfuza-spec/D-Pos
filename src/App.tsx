@@ -1,0 +1,2151 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useRef } from "react";
+import { 
+  LayoutDashboard, 
+  ShoppingCart, 
+  Package, 
+  Users, 
+  Settings, 
+  LogOut, 
+  Plus, 
+  Search, 
+  Trash2, 
+  Download, 
+  Upload,
+  Share2,
+  ChevronRight,
+  AlertCircle,
+  CheckCircle2,
+  Calendar,
+  Info,
+  X,
+  Sun,
+  Moon,
+  Menu
+} from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import * as XLSX from "xlsx";
+import { toPng } from "html-to-image";
+import { format } from "date-fns";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+import { QRCodeSVG } from "qrcode.react";
+
+// --- Utilities ---
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+// --- Types ---
+type Role = "cashier" | "admin" | "dev" | null;
+
+interface Product {
+  code: string;
+  description: string;
+  category: string;
+  cost_price: number;
+  selling_price: number;
+  qty: number;
+}
+
+interface Member {
+  phone: string;
+  name: string;
+  points: number;
+  created_at?: string;
+}
+
+interface PointsHistory {
+  id: number;
+  member_phone: string;
+  change: number;
+  reason: string;
+  created_at: string;
+}
+
+interface Sale {
+  id: number;
+  transaction_id: string;
+  date: string;
+  product_code: string;
+  description: string;
+  qty: number;
+  total_price: number;
+  discount: number;
+  member_phone: string | null;
+  points_earned?: number;
+  points_redeemed?: number;
+}
+
+interface CartItem extends Product {
+  cartQty: number;
+}
+
+// --- Components ---
+
+const Login = ({ onLogin, shopName, appLogo, getThemeColor }: { onLogin: (role: Role) => void; shopName: string; appLogo: string; getThemeColor: (t: any) => string }) => {
+  const [role, setRole] = useState<"cashier" | "admin" | "dev">("cashier");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role, password }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        onLogin(data.role);
+      } else {
+        setError(data.message);
+      }
+    } catch (err) {
+      setError("Connection error");
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-8 shadow-2xl"
+      >
+        <div className="text-center mb-8">
+          {appLogo ? (
+            <img src={appLogo} alt="Logo" className="h-16 mx-auto mb-4 object-contain" />
+          ) : (
+            <h1 className={cn("text-3xl font-bold mb-2", getThemeColor("text"))}>{shopName}</h1>
+          )}
+          <p className="text-zinc-400">Business Management System</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-zinc-400 mb-2">Access Role</label>
+            <div className="grid grid-cols-3 gap-2">
+              {(["cashier", "admin", "dev"] as const).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRole(r)}
+                  className={cn(
+                    "py-2 rounded-lg text-sm font-medium transition-all capitalize",
+                    role === r 
+                      ? cn(getThemeColor("bg"), "text-white shadow-lg", getThemeColor("shadow")) 
+                      : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                  )}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-zinc-400 mb-2">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={cn(
+                "w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 transition-all",
+                getThemeColor("border").replace("border-", "focus:ring-")
+              )}
+              placeholder="••••••••"
+              required
+            />
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 text-red-400 text-sm bg-red-400/10 p-3 rounded-lg border border-red-400/20">
+              <AlertCircle size={16} />
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            className={cn(
+              "w-full text-white font-bold py-3 rounded-lg transition-all shadow-lg",
+              getThemeColor("bg"),
+              getThemeColor("shadow")
+            )}
+          >
+            Login to Dashboard
+          </button>
+        </form>
+      </motion.div>
+    </div>
+  );
+};
+
+const Bill = ({ 
+  items, 
+  member, 
+  discount, 
+  total, 
+  shopName, 
+  appLogo,
+  billQrData,
+  billRef,
+  pointsRedeemed,
+  pointsEarned
+}: { 
+  items: CartItem[], 
+  member: Member | null, 
+  discount: number, 
+  total: number, 
+  shopName: string,
+  appLogo: string,
+  billQrData: string,
+  billRef: React.RefObject<HTMLDivElement | null>,
+  pointsRedeemed: number,
+  pointsEarned: number
+}) => {
+  return (
+    <div className="absolute -left-[9999px] top-0">
+      <div 
+        ref={billRef}
+        className="w-[400px] bg-white p-8 text-black font-mono"
+      >
+        <div className="text-center border-b-2 border-black pb-4 mb-4">
+          {appLogo && <img src={appLogo} alt="Logo" className="h-16 mx-auto mb-2 object-contain" />}
+          <h2 className="text-2xl font-bold uppercase">{shopName}</h2>
+          <p className="text-sm">{format(new Date(), "PPP p")}</p>
+        </div>
+
+        <div className="mb-4">
+          <div className="grid grid-cols-4 font-bold border-b border-black pb-1 mb-2">
+            <span className="col-span-2">Item</span>
+            <span className="text-right">Qty</span>
+            <span className="text-right">Price</span>
+          </div>
+          {items.map((item, i) => (
+            <div key={i} className="grid grid-cols-4 text-sm mb-1">
+              <span className="col-span-2 truncate">{item.description}</span>
+              <span className="text-right">x{item.cartQty}</span>
+              <span className="text-right">{((item.selling_price || 0) * item.cartQty).toFixed(2)}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t border-black pt-2 space-y-1">
+          <div className="flex justify-between">
+            <span>Subtotal:</span>
+            <span>{((total || 0) + (discount || 0)).toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between text-red-600">
+            <span>Discount:</span>
+            <span>-{(discount || 0).toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between font-bold text-lg border-t-2 border-black pt-1">
+            <span>TOTAL:</span>
+            <span>{(total || 0).toFixed(2)} Taka</span>
+          </div>
+        </div>
+
+        {member && (
+          <div className="mt-6 p-3 bg-zinc-100 rounded border border-zinc-300">
+            <p className="text-xs font-bold uppercase mb-1">Membership Info</p>
+            <p className="text-sm">Name: {member.name}</p>
+            <p className="text-sm">Phone: {member.phone}</p>
+            <div className="mt-2 pt-2 border-t border-zinc-300 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span>Previous Points:</span>
+                <span>{member.points}</span>
+              </div>
+              <div className="flex justify-between text-red-600">
+                <span>Redeemed Points:</span>
+                <span>-{pointsRedeemed}</span>
+              </div>
+              <div className="flex justify-between text-zinc-600">
+                <span>Points Earned:</span>
+                <span>+{pointsEarned}</span>
+              </div>
+              <div className="flex justify-between font-bold text-sm pt-1 border-t border-zinc-300">
+                <span>Current Total:</span>
+                <span>{member.points - pointsRedeemed + pointsEarned}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-8 text-center text-xs space-y-4">
+          <div>
+            <p>Thank you for shopping with us!</p>
+            <p>Visit again soon.</p>
+          </div>
+          {billQrData && (
+            <div className="flex justify-center">
+              <QRCodeSVG value={billQrData} size={80} level="M" />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default function App() {
+  const [role, setRole] = useState<Role>(null);
+  const [activeTab, setActiveTab] = useState("pos");
+  const [products, setProducts] = useState<Product[]>([]);
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [member, setMember] = useState<Member | null>(null);
+  const [shopName, setShopName] = useState("SportsStock Pro");
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [dateRange, setDateRange] = useState({ 
+    start: format(new Date(), "yyyy-MM-dd"), 
+    end: format(new Date(), "yyyy-MM-dd") 
+  });
+  
+  const billRef = useRef<HTMLDivElement>(null);
+
+  const [allMembers, setAllMembers] = useState<Member[]>([]);
+  const [selectedMemberHistory, setSelectedMemberHistory] = useState<PointsHistory[]>([]);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [newMemberData, setNewMemberData] = useState({ phone: "", name: "" });
+  const [productSearch, setProductSearch] = useState("");
+  const [memberDirectorySearch, setMemberDirectorySearch] = useState("");
+  const [notification, setNotification] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+  const [appTheme, setAppTheme] = useState("emerald");
+  const [themeMode, setThemeMode] = useState<"dark" | "light">("dark");
+  const [appLogo, setAppLogo] = useState("");
+  const [billQrData, setBillQrData] = useState("https://sportsstock.pro");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const showNotification = (message: string, type: "success" | "error" | "info" = "success") => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  useEffect(() => {
+    if (role) {
+      fetchProducts();
+      fetchSettings();
+      if (role === "admin" || role === "dev") {
+        fetchSales();
+        fetchAllMembers();
+      }
+
+      // WebSocket setup for real-time updates
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(`${protocol}//${window.location.host}`);
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "STOCK_UPDATED") {
+            fetchProducts();
+            if (role === "admin" || role === "dev") {
+              fetchSales();
+            }
+          }
+        } catch (err) {
+          console.error("WS error:", err);
+        }
+      };
+
+      return () => ws.close();
+    }
+  }, [role, dateRange]);
+
+  useEffect(() => {
+    if (activeTab === "members" && (role === "admin" || role === "dev")) {
+      fetchAllMembers();
+    }
+  }, [activeTab, role]);
+
+  const fetchProducts = async () => {
+    const res = await fetch("/api/products");
+    const data = await res.json();
+    setProducts(data);
+  };
+
+  const fetchSettings = async () => {
+    const res = await fetch("/api/settings");
+    const data = await res.json();
+    if (data.shop_name) setShopName(data.shop_name);
+    if (data.app_theme) setAppTheme(data.app_theme);
+    if (data.app_logo) setAppLogo(data.app_logo);
+    if (data.bill_qr_data) setBillQrData(data.bill_qr_data);
+  };
+
+  const fetchSales = async () => {
+    const res = await fetch(`/api/reports/sales?start=${dateRange.start}&end=${dateRange.end}`);
+    const data = await res.json();
+    setSales(data);
+  };
+
+  const fetchAllMembers = async () => {
+    const res = await fetch("/api/members");
+    const data = await res.json();
+    setAllMembers(data);
+  };
+
+  const fetchMemberHistory = async (phone: string) => {
+    const res = await fetch(`/api/members/${phone}/history`);
+    const data = await res.json();
+    setSelectedMemberHistory(data);
+    setShowHistoryModal(true);
+  };
+
+  const handleLogout = () => {
+    setRole(null);
+    setCart([]);
+    setMember(null);
+  };
+
+  // --- POS Logic ---
+  const addToCart = (product: Product) => {
+    setCart(prev => {
+      const existing = prev.find(p => p.code === product.code);
+      if (existing) {
+        if (existing.cartQty >= product.qty) return prev;
+        return prev.map(p => p.code === product.code ? { ...p, cartQty: p.cartQty + 1 } : p);
+      }
+      return [...prev, { ...product, cartQty: 1 }];
+    });
+  };
+
+  const removeFromCart = (code: string) => {
+    setCart(prev => prev.filter(p => p.code !== code));
+  };
+
+  const cartTotal = cart.reduce((sum, item) => sum + (item.selling_price * item.cartQty), 0);
+  const [customDiscount, setCustomDiscount] = useState(0);
+  const [redeemPoints, setRedeemPoints] = useState(0);
+
+  // Preview Bill State
+  const [previewBillData, setPreviewBillData] = useState<{
+    items: CartItem[];
+    member: Member | null;
+    discount: number;
+    total: number;
+    pointsRedeemed: number;
+    pointsEarned: number;
+    date: string;
+  } | null>(null);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const previewBillRef = useRef<HTMLDivElement>(null);
+
+  const totalDiscount = customDiscount + (redeemPoints);
+  const finalTotal = cartTotal - totalDiscount;
+
+  const [memberSearch, setMemberSearch] = useState("");
+  const [memberResults, setMemberResults] = useState<Member[]>([]);
+  const [showMemberResults, setShowMemberResults] = useState(false);
+
+  const searchMembers = async (query: string) => {
+    setMemberSearch(query);
+    if (query.length < 2) {
+      setMemberResults([]);
+      return;
+    }
+    const res = await fetch(`/api/members/search?query=${query}`);
+    const data = await res.json();
+    setMemberResults(data);
+    setShowMemberResults(true);
+  };
+
+  const pointsEarned = member ? Math.floor(finalTotal / 100) : 0;
+
+  const handleCheckout = async () => {
+    // Validation: Discount must be greater than cost price + 6%
+    const totalCost = cart.reduce((sum, item) => sum + (item.cost_price * item.cartQty), 0);
+    if (finalTotal < totalCost * 1.06) {
+      showNotification("Discount too high! Final price must be at least 6% above cost price.", "error");
+      return;
+    }
+
+    if (redeemPoints > 0 && redeemPoints < 2) {
+      showNotification("Minimum redemption is 2 points.", "error");
+      return;
+    }
+
+    const res = await fetch("/api/sales", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: cart.map(item => ({ code: item.code, qty: item.cartQty, price: item.selling_price })),
+        member_phone: member?.phone,
+        discount: totalDiscount,
+        points_redeemed: redeemPoints
+      }),
+    });
+
+    if (res.ok) {
+      showNotification("Bill completed successfully!", "success");
+      // Generate Bill Image
+      if (billRef.current) {
+        const dataUrl = await toPng(billRef.current);
+        const link = document.createElement('a');
+        link.download = `bill-${Date.now()}.png`;
+        link.href = dataUrl;
+        link.click();
+      }
+      setCart([]);
+      setMember(null);
+      setCustomDiscount(0);
+      setRedeemPoints(0);
+      setMemberSearch("");
+      fetchProducts();
+      if (role === "admin" || role === "dev") {
+        fetchAllMembers();
+      }
+    } else {
+      const err = await res.json();
+      showNotification(`Checkout failed: ${err.message}`, "error");
+    }
+  };
+
+  const openBillPreview = (transactionId: string) => {
+    const transactionSales = sales.filter(s => s.transaction_id === transactionId);
+    if (transactionSales.length === 0) return;
+
+    const firstSale = transactionSales[0];
+    const billItems: CartItem[] = transactionSales.map(s => ({
+      code: s.product_code,
+      description: s.description,
+      category: "", 
+      cost_price: 0,
+      selling_price: s.total_price / s.qty,
+      qty: 0,
+      cartQty: s.qty
+    }));
+
+    const billMember = allMembers.find(m => m.phone === firstSale.member_phone) || null;
+
+    setPreviewBillData({
+      items: billItems,
+      member: billMember,
+      discount: transactionSales.reduce((sum, s) => sum + (s.discount || 0), 0),
+      total: transactionSales.reduce((sum, s) => sum + (s.total_price || 0), 0) - transactionSales.reduce((sum, s) => sum + (s.discount || 0), 0),
+      pointsRedeemed: transactionSales.reduce((sum, s) => sum + (s.points_redeemed || 0), 0),
+      pointsEarned: transactionSales.reduce((sum, s) => sum + (s.points_earned || 0), 0),
+      date: firstSale.date
+    });
+    setShowPreviewModal(true);
+  };
+
+  const handleShare = async (platform: 'whatsapp' | 'messenger') => {
+    if (!previewBillRef.current) return;
+    
+    try {
+      const dataUrl = await toPng(previewBillRef.current, { backgroundColor: '#fff' });
+      const blob = await (await fetch(dataUrl)).blob();
+      const file = new File([blob], 'bill.png', { type: 'image/png' });
+
+      if (navigator.share && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'Bill Receipt',
+          text: `Here is your bill receipt from ${shopName}`,
+        });
+      } else {
+        const message = encodeURIComponent(`Here is your bill receipt from ${shopName}. (Image sharing requires mobile device)`);
+        if (platform === 'whatsapp') {
+          window.open(`https://wa.me/?text=${message}`, '_blank');
+        } else {
+          showNotification("Sharing images directly to Messenger requires the Facebook app on mobile.", "info");
+        }
+      }
+    } catch (err) {
+      console.error("Error sharing:", err);
+      showNotification("Failed to share bill", "error");
+    }
+  };
+
+  const downloadSalesReport = () => {
+    const reportData = sales.map(s => ({
+      Date: s.date,
+      'Transaction ID': s.transaction_id,
+      'Product Code': s.product_code,
+      Description: s.description,
+      Quantity: s.qty,
+      'Unit Price': (s.total_price / s.qty).toFixed(2),
+      'Total Price': s.total_price.toFixed(2),
+      Discount: (s.discount || 0).toFixed(2),
+      'Net Total': (s.total_price - (s.discount || 0)).toFixed(2),
+      Member: s.member_phone || 'Guest'
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(reportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Sales Report");
+    XLSX.writeFile(wb, `Sales_Report_${format(new Date(), "yyyy-MM-dd")}.xlsx`);
+  };
+
+  const downloadInventoryData = () => {
+    const inventoryData = products.map(p => ({
+      Code: p.code,
+      Description: p.description,
+      Category: p.category,
+      'Cost Price': p.cost_price.toFixed(2),
+      'Selling Price': p.selling_price.toFixed(2),
+      Quantity: p.qty,
+      'Total Cost Value': (p.cost_price * p.qty).toFixed(2),
+      'Total Selling Value': (p.selling_price * p.qty).toFixed(2)
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(inventoryData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Inventory");
+    XLSX.writeFile(wb, `Inventory_Data_${format(new Date(), "yyyy-MM-dd")}.xlsx`);
+  };
+
+  const registerMember = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const { phone, name } = newMemberData;
+    if (!phone || !name) return;
+
+    const res = await fetch("/api/members", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone, name }),
+    });
+
+    if (res.ok) {
+      showNotification("Member registered successfully!");
+      const memberRes = await fetch(`/api/members/${phone}`);
+      const memberData = await memberRes.json();
+      setMember(memberData);
+      setShowRegisterModal(false);
+      setNewMemberData({ phone: "", name: "" });
+      if (role === "admin" || role === "dev") {
+        fetchAllMembers();
+      }
+    } else {
+      const err = await res.json();
+      showNotification(`Registration failed: ${err.message}`, "error");
+    }
+  };
+
+  // --- Admin Logic ---
+  const [newProduct, setNewProduct] = useState({ code: "", description: "", category: "", cost_price: 0, qty: 0 });
+  const handleAddProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const selling_price = newProduct.cost_price * 1.12;
+    await fetch("/api/products", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...newProduct, selling_price }),
+    });
+    fetchProducts();
+    setNewProduct({ code: "", description: "", category: "", cost_price: 0, qty: 0 });
+  };
+
+  // --- Dev Logic ---
+  const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const bstr = evt.target?.result;
+      const wb = XLSX.read(bstr, { type: "binary" });
+      const wsname = wb.SheetNames[0];
+      const ws = wb.Sheets[wsname];
+      const data = XLSX.utils.sheet_to_json(ws) as any[];
+      
+      const productsToUpload = data.map(row => {
+        // Find keys case-insensitively and handle spaces/underscores
+        const findKey = (patterns: string[]) => {
+          const key = Object.keys(row).find(k => 
+            patterns.some(p => k.toLowerCase().replace(/[^a-z0-9]/g, '') === p.toLowerCase().replace(/[^a-z0-9]/g, ''))
+          );
+          return key ? row[key] : undefined;
+        };
+
+        const code = String(findKey(["code", "productcode", "itemcode"]) || "");
+        const description = String(findKey(["description", "name", "itemname"]) || "");
+        const category = String(findKey(["category", "type"]) || "General");
+        const cost_price = Number(findKey(["costprice", "cost", "cp"]) || 0);
+        const selling_price = Number(findKey(["sellingprice", "price", "sp"]) || 0);
+        const qty = Number(findKey(["qty", "quantity", "stock"]) || 0);
+
+        return { code, description, category, cost_price, selling_price, qty };
+      }).filter(p => p.code); // Only include rows with a code
+
+      if (productsToUpload.length === 0) {
+        showNotification("No valid products found in Excel file. Please ensure columns are named correctly (e.g., Code, Description, Category, Cost Price, Qty).", "error");
+        return;
+      }
+
+      const res = await fetch("/api/products/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(productsToUpload),
+      });
+
+      if (res.ok) {
+        showNotification(`Bulk upload of ${productsToUpload.length} products successful!`);
+      } else {
+        const err = await res.json();
+        showNotification(`Upload failed: ${err.message}`, "error");
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const [passwords, setPasswords] = useState({ admin: "", cashier: "" });
+  const updatePassword = async (role: "admin" | "cashier") => {
+    const password = passwords[role];
+    if (!password) return;
+    await fetch("/api/users/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role, password }),
+    });
+    showNotification(`${role} password updated!`);
+  };
+
+  const updateShopName = async () => {
+    await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "shop_name", value: shopName }),
+    });
+    showNotification("Shop name updated!");
+  };
+
+  const updateSetting = async (key: string, value: string) => {
+    await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, value }),
+    });
+    showNotification(`${key.replace(/_/g, ' ')} updated!`);
+  };
+
+  const themeColors: Record<string, string> = {
+    emerald: "text-emerald-500 bg-emerald-500",
+    blue: "text-blue-500 bg-blue-500",
+    violet: "text-violet-500 bg-violet-500",
+    rose: "text-rose-500 bg-rose-500",
+    amber: "text-amber-500 bg-amber-500",
+  };
+
+  const getThemeColor = (type: "text" | "bg" | "border" | "shadow" | "fill") => {
+    const colors: Record<string, any> = {
+      emerald: { text: "text-emerald-500", bg: "bg-emerald-500", border: "border-emerald-500", shadow: "shadow-emerald-500/20", fill: "fill-emerald-500" },
+      blue: { text: "text-blue-500", bg: "bg-blue-500", border: "border-blue-500", shadow: "shadow-blue-500/20", fill: "fill-blue-500" },
+      violet: { text: "text-violet-500", bg: "bg-violet-500", border: "border-violet-500", shadow: "shadow-violet-500/20", fill: "fill-violet-500" },
+      rose: { text: "text-rose-500", bg: "bg-rose-500", border: "border-rose-500", shadow: "shadow-rose-500/20", fill: "fill-rose-500" },
+      amber: { text: "text-amber-500", bg: "bg-amber-500", border: "border-amber-500", shadow: "shadow-amber-500/20", fill: "fill-amber-500" },
+    };
+    return colors[appTheme]?.[type] || colors.emerald[type];
+  };
+
+  if (!role) return <Login onLogin={setRole} shopName={shopName} appLogo={appLogo} getThemeColor={getThemeColor} />;
+
+  const isDark = themeMode === "dark";
+
+  return (
+    <div className={cn(
+      "min-h-screen flex flex-col lg:flex-row w-full max-w-[1440px] mx-auto relative transition-colors duration-300",
+      isDark ? "bg-zinc-950 text-zinc-100" : "bg-zinc-50 text-zinc-900"
+    )}>
+      <Bill 
+        items={cart} 
+        member={member} 
+        discount={totalDiscount} 
+        total={finalTotal} 
+        shopName={shopName} 
+        appLogo={appLogo}
+        billQrData={billQrData}
+        billRef={billRef}
+        pointsRedeemed={redeemPoints}
+        pointsEarned={pointsEarned}
+      />
+      <AnimatePresence>
+        {notification && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, x: "-50%" }}
+            animate={{ opacity: 1, y: 20, x: "-50%" }}
+            exit={{ opacity: 0, y: -20, x: "-50%" }}
+            className={cn(
+              "fixed top-0 left-1/2 z-[200] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border backdrop-blur-md",
+              notification.type === "success" 
+                ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("border").replace("border-", "border-opacity-20 border-"), getThemeColor("text")) 
+                : notification.type === "info"
+                  ? "bg-blue-500/10 border-blue-500/20 text-blue-500"
+                  : "bg-red-500/10 border-red-500/20 text-red-500"
+            )}
+          >
+            {notification.type === "success" ? <CheckCircle2 size={20} /> : notification.type === "info" ? <Info size={20} /> : <AlertCircle size={20} />}
+            <span className="font-bold text-sm">{notification.message}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Mobile Header */}
+      <div className={cn(
+        "lg:hidden flex items-center justify-between p-4 border-b sticky top-0 z-[100] backdrop-blur-md",
+        isDark ? "bg-zinc-900/80 border-zinc-800" : "bg-white/80 border-zinc-200"
+      )}>
+        <div className="flex items-center gap-3">
+          {appLogo ? (
+            <img src={appLogo} alt="Logo" className="h-8 w-auto object-contain" />
+          ) : (
+            <h1 className={cn("text-lg font-bold", getThemeColor("text"))}>{shopName}</h1>
+          )}
+        </div>
+        <button 
+          onClick={() => setIsMobileMenuOpen(true)}
+          className={cn("p-2 rounded-lg", isDark ? "hover:bg-zinc-800" : "hover:bg-zinc-100")}
+        >
+          <Menu size={24} />
+        </button>
+      </div>
+
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[150] lg:hidden"
+            />
+            <motion.nav 
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className={cn(
+                "fixed top-0 left-0 bottom-0 w-72 z-[160] p-6 flex flex-col gap-2 lg:hidden",
+                isDark ? "bg-zinc-900 border-r border-zinc-800" : "bg-white border-r border-zinc-200"
+              )}
+            >
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                  {appLogo ? (
+                    <img src={appLogo} alt="Logo" className="h-10 w-auto object-contain" />
+                  ) : (
+                    <h1 className={cn("text-xl font-bold", getThemeColor("text"))}>{shopName}</h1>
+                  )}
+                </div>
+                <button 
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className={cn("p-2 rounded-lg", isDark ? "hover:bg-zinc-800" : "hover:bg-zinc-100")}
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="space-y-2 flex-1 overflow-y-auto">
+                <button 
+                  onClick={() => { setActiveTab("pos"); setIsMobileMenuOpen(false); }}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-3 rounded-xl transition-all w-full", 
+                    activeTab === "pos" 
+                      ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text")) 
+                      : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
+                  )}
+                >
+                  <ShoppingCart size={20} /> POS
+                </button>
+
+                {(role === "admin" || role === "dev") && (
+                  <>
+                    <button 
+                      onClick={() => { setActiveTab("inventory"); setIsMobileMenuOpen(false); }}
+                      className={cn(
+                        "flex items-center gap-3 px-4 py-3 rounded-xl transition-all w-full", 
+                        activeTab === "inventory" 
+                          ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text")) 
+                          : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
+                      )}
+                    >
+                      <Package size={20} /> Inventory
+                    </button>
+                    <button 
+                      onClick={() => { setActiveTab("members"); setIsMobileMenuOpen(false); }}
+                      className={cn(
+                        "flex items-center gap-3 px-4 py-3 rounded-xl transition-all w-full", 
+                        activeTab === "members" 
+                          ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text")) 
+                          : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
+                      )}
+                    >
+                      <Users size={20} /> Members
+                    </button>
+                    <button 
+                      onClick={() => { setActiveTab("reports"); setIsMobileMenuOpen(false); }}
+                      className={cn(
+                        "flex items-center gap-3 px-4 py-3 rounded-xl transition-all w-full", 
+                        activeTab === "reports" 
+                          ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text")) 
+                          : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
+                      )}
+                    >
+                      <LayoutDashboard size={20} /> Sales Report
+                    </button>
+                  </>
+                )}
+
+                <button 
+                  onClick={() => { setActiveTab("about"); setIsMobileMenuOpen(false); }}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-3 rounded-xl transition-all w-full", 
+                    activeTab === "about" 
+                      ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text")) 
+                      : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
+                  )}
+                >
+                  <Info size={20} /> About
+                </button>
+
+                {role === "dev" && (
+                  <button 
+                    onClick={() => { setActiveTab("dev"); setIsMobileMenuOpen(false); }}
+                    className={cn(
+                      "flex items-center gap-3 px-4 py-3 rounded-xl transition-all w-full", 
+                      activeTab === "dev" 
+                        ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text")) 
+                        : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
+                    )}
+                  >
+                    <Settings size={20} /> Dev Options
+                  </button>
+                )}
+              </div>
+
+              <div className={cn("mt-auto pt-4 border-t", isDark ? "border-zinc-800" : "border-zinc-200")}>
+                <button 
+                  onClick={() => setThemeMode(isDark ? "light" : "dark")}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-3 rounded-xl text-sm transition-all border mb-2 w-full",
+                    isDark ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700" : "bg-zinc-100 border-zinc-200 text-zinc-600 hover:bg-zinc-200"
+                  )}
+                >
+                  {isDark ? <Sun size={20} /> : <Moon size={20} />}
+                  <span>{isDark ? "Light Mode" : "Dark Mode"}</span>
+                </button>
+                <button 
+                  onClick={handleLogout}
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:bg-red-400/10 w-full transition-all"
+                >
+                  <LogOut size={20} /> Logout
+                </button>
+              </div>
+            </motion.nav>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Desktop Sidebar */}
+      <motion.nav 
+        initial={false}
+        animate={{ width: isSidebarOpen ? 256 : 80 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        className={cn(
+          "hidden lg:flex border-r p-4 flex-col gap-2 shrink-0 transition-colors overflow-hidden",
+          isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"
+        )}
+      >
+        <div className="mb-8 px-2 flex flex-col gap-4 overflow-hidden">
+          <div 
+            className="cursor-pointer group" 
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            title={isSidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
+          >
+            {appLogo ? (
+              <img src={appLogo} alt="Logo" className="h-12 w-auto mb-4 object-contain transition-transform group-hover:scale-110" />
+            ) : (
+              <h1 className={cn("text-xl font-bold truncate transition-transform group-hover:scale-110", getThemeColor("text"))}>
+                {isSidebarOpen ? shopName : shopName[0]}
+              </h1>
+            )}
+            <AnimatePresence>
+              {isSidebarOpen && (
+                <motion.p 
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className={cn("text-xs uppercase tracking-widest mt-1 truncate", isDark ? "text-zinc-500" : "text-zinc-400")}
+                >
+                  {role} Mode
+                </motion.p>
+              )}
+            </AnimatePresence>
+          </div>
+          
+          <button 
+            onClick={() => setThemeMode(isDark ? "light" : "dark")}
+            className={cn(
+              "flex items-center gap-3 px-4 py-2 rounded-xl text-sm transition-all border overflow-hidden",
+              isDark ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700" : "bg-zinc-100 border-zinc-200 text-zinc-600 hover:bg-zinc-200",
+              !isSidebarOpen && "justify-center px-0"
+            )}
+            title={!isSidebarOpen ? (isDark ? "Light Mode" : "Dark Mode") : ""}
+          >
+            <span className="shrink-0">{isDark ? <Sun size={20} /> : <Moon size={20} />}</span>
+            {isSidebarOpen && <span className="truncate">{isDark ? "Light Mode" : "Dark Mode"}</span>}
+          </button>
+        </div>
+
+        <button 
+          onClick={() => setActiveTab("pos")}
+          className={cn(
+            "flex items-center gap-3 px-4 py-3 rounded-xl transition-all overflow-hidden", 
+            activeTab === "pos" 
+              ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text")) 
+              : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100"),
+            !isSidebarOpen && "justify-center px-0"
+          )}
+          title={!isSidebarOpen ? "POS" : ""}
+        >
+          <ShoppingCart size={20} className="shrink-0" />
+          {isSidebarOpen && <span className="truncate">POS</span>}
+        </button>
+
+        {(role === "admin" || role === "dev") && (
+          <>
+            <button 
+              onClick={() => setActiveTab("inventory")}
+              className={cn(
+                "flex items-center gap-3 px-4 py-3 rounded-xl transition-all overflow-hidden", 
+                activeTab === "inventory" 
+                  ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text")) 
+                  : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100"),
+                !isSidebarOpen && "justify-center px-0"
+              )}
+              title={!isSidebarOpen ? "Inventory" : ""}
+            >
+              <Package size={20} className="shrink-0" />
+              {isSidebarOpen && <span className="truncate">Inventory</span>}
+            </button>
+            <button 
+              onClick={() => setActiveTab("members")}
+              className={cn(
+                "flex items-center gap-3 px-4 py-3 rounded-xl transition-all overflow-hidden", 
+                activeTab === "members" 
+                  ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text")) 
+                  : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100"),
+                !isSidebarOpen && "justify-center px-0"
+              )}
+              title={!isSidebarOpen ? "Members" : ""}
+            >
+              <Users size={20} className="shrink-0" />
+              {isSidebarOpen && <span className="truncate">Members</span>}
+            </button>
+            <button 
+              onClick={() => setActiveTab("reports")}
+              className={cn(
+                "flex items-center gap-3 px-4 py-3 rounded-xl transition-all overflow-hidden", 
+                activeTab === "reports" 
+                  ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text")) 
+                  : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100"),
+                !isSidebarOpen && "justify-center px-0"
+              )}
+              title={!isSidebarOpen ? "Sales Report" : ""}
+            >
+              <LayoutDashboard size={20} className="shrink-0" />
+              {isSidebarOpen && <span className="truncate">Sales Report</span>}
+            </button>
+          </>
+        )}
+
+        <button 
+          onClick={() => setActiveTab("about")}
+          className={cn(
+            "flex items-center gap-3 px-4 py-3 rounded-xl transition-all overflow-hidden", 
+            activeTab === "about" 
+              ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text")) 
+              : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100"),
+            !isSidebarOpen && "justify-center px-0"
+          )}
+          title={!isSidebarOpen ? "About" : ""}
+        >
+          <Info size={20} className="shrink-0" />
+          {isSidebarOpen && <span className="truncate">About</span>}
+        </button>
+
+        {role === "dev" && (
+          <button 
+            onClick={() => setActiveTab("dev")}
+            className={cn(
+              "flex items-center gap-3 px-4 py-3 rounded-xl transition-all overflow-hidden", 
+              activeTab === "dev" 
+                ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text")) 
+                : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100"),
+              !isSidebarOpen && "justify-center px-0"
+            )}
+            title={!isSidebarOpen ? "Dev Options" : ""}
+          >
+            <Settings size={20} className="shrink-0" />
+            {isSidebarOpen && <span className="truncate">Dev Options</span>}
+          </button>
+        )}
+
+        <div className={cn("mt-auto pt-4 border-t", isDark ? "border-zinc-800" : "border-zinc-200")}>
+          <button 
+            onClick={handleLogout}
+            className={cn(
+              "flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:bg-red-400/10 w-full transition-all overflow-hidden",
+              !isSidebarOpen && "justify-center px-0"
+            )}
+            title={!isSidebarOpen ? "Logout" : ""}
+          >
+            <LogOut size={20} className="shrink-0" />
+            {isSidebarOpen && <span className="truncate">Logout</span>}
+          </button>
+        </div>
+      </motion.nav>
+
+      {/* Main Content */}
+      <main className={cn(
+        "flex-1 p-4 lg:p-8 transition-colors",
+        activeTab === "pos" ? "lg:h-screen lg:overflow-hidden" : "overflow-auto",
+        isDark ? "bg-zinc-950" : "bg-zinc-50"
+      )}>
+        <AnimatePresence mode="wait">
+          {activeTab === "pos" && (
+            <motion.div 
+              key="pos"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:h-full"
+            >
+              {/* Products Grid */}
+              <div className="lg:col-span-2 flex flex-col gap-6 lg:h-full lg:overflow-hidden">
+                <div className={cn(
+                  "flex items-center gap-4 p-4 rounded-2xl border transition-colors shrink-0",
+                  isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
+                )}>
+                  <Search className="text-zinc-500" />
+                  <input 
+                    type="text" 
+                    placeholder="Search products by code or name..." 
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    className={cn("bg-transparent border-none focus:outline-none w-full", isDark ? "text-white" : "text-zinc-900")}
+                  />
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 lg:overflow-auto pb-8 pr-2 custom-scrollbar">
+                  {products
+                    .filter(p => 
+                      p.code.toLowerCase().includes(productSearch.toLowerCase()) || 
+                      p.description.toLowerCase().includes(productSearch.toLowerCase())
+                    )
+                    .map(p => (
+                          <button 
+                            key={p.code}
+                            onClick={() => addToCart(p)}
+                            disabled={p.qty <= 0}
+                            className={cn(
+                              "border p-4 rounded-2xl transition-all text-left group disabled:opacity-50",
+                              isDark ? "bg-zinc-900 border-zinc-800 hover:border-zinc-700" : "bg-white border-zinc-200 hover:border-zinc-300 shadow-sm",
+                              `hover:${getThemeColor("border")}/50`
+                            )}
+                          >
+                            <div className="text-xs text-zinc-500 mb-1">{p.category}</div>
+                            <div className={cn("font-bold mb-2 line-clamp-1", isDark ? "text-white" : "text-zinc-900")}>{p.description}</div>
+                            <div className="flex justify-between items-end">
+                              <div className={cn("font-bold", getThemeColor("text"))}>{(p.selling_price || 0).toFixed(2)} ৳</div>
+                              <div className="text-[10px] text-zinc-500">Stock: {p.qty}</div>
+                            </div>
+                          </button>
+                    ))}
+                </div>
+              </div>
+
+              {/* Cart / Checkout */}
+              <div className={cn(
+                "rounded-3xl border flex flex-col lg:h-full lg:overflow-hidden transition-colors",
+                isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-lg"
+              )}>
+                <div className={cn("p-6 border-b flex justify-between items-center shrink-0", isDark ? "border-zinc-800" : "border-zinc-100")}>
+                  <h2 className="text-xl font-bold">Current Order</h2>
+                  <span className={cn("text-white text-xs px-2 py-1 rounded-full", getThemeColor("bg"))}>{cart.length} items</span>
+                </div>
+
+                <div className="flex-1 p-6 space-y-4 lg:overflow-auto custom-scrollbar min-h-[300px]">
+                  {cart.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-zinc-500 gap-4">
+                      <ShoppingCart size={48} strokeWidth={1} />
+                      <p>Your cart is empty</p>
+                    </div>
+                  ) : (
+                    cart.map(item => (
+                      <div key={item.code} className={cn("flex justify-between items-center p-3 rounded-xl", isDark ? "bg-zinc-800/50" : "bg-zinc-50")}>
+                        <div>
+                          <div className="font-medium text-sm">{item.description}</div>
+                          <div className="text-xs text-zinc-500">x{item.cartQty} @ {(item.selling_price || 0).toFixed(2)}</div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="font-bold">{((item.selling_price || 0) * item.cartQty).toFixed(2)}</div>
+                          <button onClick={() => removeFromCart(item.code)} className="text-zinc-500 hover:text-red-400">
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className={cn("p-6 border-t space-y-4", isDark ? "bg-zinc-800/30 border-zinc-800" : "bg-zinc-50/50 border-zinc-100")}>
+                  {/* Member Section */}
+                  <div className="space-y-2 relative">
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input 
+                          type="text" 
+                          placeholder="Search Member (Phone/Name)" 
+                          value={memberSearch}
+                          onChange={(e) => searchMembers(e.target.value)}
+                          className={cn(
+                            "w-full border rounded-lg px-3 py-2 text-sm",
+                            isDark ? "bg-zinc-900 border-zinc-700" : "bg-white border-zinc-200"
+                          )}
+                        />
+                        {showMemberResults && memberResults.length > 0 && (
+                          <div className={cn(
+                            "absolute bottom-full mb-2 left-0 right-0 border rounded-xl shadow-2xl overflow-hidden z-50",
+                            isDark ? "bg-zinc-800 border-zinc-700" : "bg-white border-zinc-200"
+                          )}>
+                            {memberResults.map(m => (
+                              <button 
+                                key={m.phone}
+                                onClick={() => {
+                                  setMember(m);
+                                  setShowMemberResults(false);
+                                  setMemberSearch(m.name);
+                                }}
+                                className={cn(
+                                  "w-full text-left px-4 py-2 text-sm border-b last:border-none",
+                                  isDark ? "hover:bg-zinc-700 border-zinc-700" : "hover:bg-zinc-50 border-zinc-100"
+                                )}
+                              >
+                                <div className="font-bold">{m.name}</div>
+                                <div className="text-xs text-zinc-400">{m.phone} • {m.points} pts</div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <button 
+                        onClick={() => setShowRegisterModal(true)}
+                        className={cn("border px-3 rounded-lg text-[10px] font-bold uppercase", getThemeColor("bg"), "bg-opacity-10", getThemeColor("text"), getThemeColor("border").replace("border-", "border-opacity-20 border-"))}
+                      >
+                        New
+                      </button>
+                    </div>
+                    {member && (
+                      <div className={cn("border p-3 rounded-xl flex justify-between items-center", getThemeColor("bg"), "bg-opacity-10", getThemeColor("border").replace("border-", "border-opacity-20 border-"))}>
+                        <div>
+                          <div className={cn("text-xs font-bold", getThemeColor("text"))}>{member.name}</div>
+                          <div className="text-[10px] text-zinc-400">Points: {member.points}</div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => {
+                              const pts = Number(prompt(`Redeem points? (Min: 2, Max: ${Math.min(member.points, Math.floor(cartTotal))})`, "0"));
+                              if (pts === 0) setRedeemPoints(0);
+                              else if (pts < 2) showNotification("Minimum redemption is 2 points", "error");
+                              else if (pts > member.points) showNotification("Insufficient points", "error");
+                              else if (pts > cartTotal) showNotification("Redemption cannot exceed bill total", "error");
+                              else setRedeemPoints(pts);
+                            }}
+                            className={cn("text-[10px] text-white px-2 py-1 rounded", getThemeColor("bg"))}
+                          >
+                            Redeem
+                          </button>
+                          <button 
+                            onClick={() => {
+                              setMember(null);
+                              setMemberSearch("");
+                              setRedeemPoints(0);
+                            }}
+                            className="text-[10px] bg-zinc-700 text-zinc-400 px-2 py-1 rounded"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between text-zinc-400">
+                      <span>Subtotal</span>
+                      <span>{(cartTotal || 0).toFixed(2)} ৳</span>
+                    </div>
+                    <div className="flex justify-between text-red-400">
+                      <span>Discount</span>
+                      <input 
+                        type="number" 
+                        value={customDiscount} 
+                        onChange={(e) => setCustomDiscount(Number(e.target.value))}
+                        className="w-20 bg-transparent text-right border-b border-zinc-700 focus:outline-none"
+                      />
+                    </div>
+                    {redeemPoints > 0 && (
+                      <div className={cn("flex justify-between", getThemeColor("text"))}>
+                        <span>Points Discount</span>
+                        <span>-{(redeemPoints || 0).toFixed(2)} ৳</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-xl font-bold pt-2 border-t border-zinc-700">
+                      <span>Total</span>
+                      <span>{(finalTotal || 0).toFixed(2)} ৳</span>
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={handleCheckout}
+                    disabled={cart.length === 0}
+                    className={cn(
+                      "w-full text-white font-bold py-4 rounded-2xl shadow-lg transition-all disabled:bg-zinc-700 disabled:shadow-none",
+                      getThemeColor("bg"),
+                      getThemeColor("shadow")
+                    )}
+                  >
+                    Complete Sale & Print Bill
+                  </button>
+                </div>
+              </div>
+              
+              {/* Register Member Modal */}
+      <AnimatePresence>
+        {showRegisterModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-zinc-900 border border-zinc-800 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl"
+            >
+              <div className="p-6 border-b border-zinc-800 flex justify-between items-center">
+                <h3 className="text-xl font-bold">Register New Member</h3>
+                <button onClick={() => setShowRegisterModal(false)} className="text-zinc-500 hover:text-white">
+                  <Trash2 size={24} />
+                </button>
+              </div>
+              <form onSubmit={registerMember} className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-2">Phone Number</label>
+                  <input 
+                    type="tel" 
+                    required
+                    placeholder="e.g. 01700000000"
+                    value={newMemberData.phone}
+                    onChange={e => setNewMemberData({...newMemberData, phone: e.target.value})}
+                    className={cn(
+                      "w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 outline-none transition-all",
+                      getThemeColor("border").replace("border-", "focus:border-")
+                    )}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-2">Customer Name</label>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="e.g. John Doe"
+                    value={newMemberData.name}
+                    onChange={e => setNewMemberData({...newMemberData, name: e.target.value})}
+                    className={cn(
+                      "w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 outline-none transition-all",
+                      getThemeColor("border").replace("border-", "focus:border-")
+                    )}
+                  />
+                </div>
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    type="submit"
+                    className={cn("flex-1 text-white font-bold py-3 rounded-xl transition-all", getThemeColor("bg"))}
+                  >
+                    Register Member
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setShowRegisterModal(false)}
+                    className="px-6 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 font-bold py-3 rounded-xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* History Modal */}
+      <AnimatePresence>
+        {showHistoryModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-zinc-900 border border-zinc-800 w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl"
+            >
+              <div className="p-6 border-b border-zinc-800 flex justify-between items-center">
+                <h3 className="text-xl font-bold">Points History</h3>
+                <button onClick={() => setShowHistoryModal(false)} className="text-zinc-500 hover:text-white">
+                  <Trash2 size={24} />
+                </button>
+              </div>
+              <div className="max-h-[60vh] overflow-auto p-6">
+                {selectedMemberHistory.length === 0 ? (
+                  <p className="text-center text-zinc-500 py-8">No history found</p>
+                ) : (
+                  <div className="space-y-4">
+                    {selectedMemberHistory.map(h => (
+                      <div key={h.id} className="flex justify-between items-center bg-zinc-800/50 p-4 rounded-2xl border border-zinc-700/50">
+                        <div>
+                          <div className="font-bold text-sm">{h.reason}</div>
+                          <div className="text-xs text-zinc-500">{format(new Date(h.created_at), "PPP p")}</div>
+                        </div>
+                        <div className={cn(
+                          "font-bold text-lg",
+                          h.change > 0 ? getThemeColor("text") : "text-red-500"
+                        )}>
+                          {h.change > 0 ? "+" : ""}{h.change}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="p-6 bg-zinc-800/50 text-center">
+                <button 
+                  onClick={() => setShowHistoryModal(false)}
+                  className="bg-zinc-700 hover:bg-zinc-600 text-white px-8 py-2 rounded-xl transition-all"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+            </motion.div>
+          )}
+
+          {activeTab === "inventory" && (
+            <motion.div 
+              key="inventory"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-8"
+            >
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold">Inventory Management</h2>
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={downloadInventoryData}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all border",
+                      isDark ? "bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700" : "bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-50 shadow-sm"
+                    )}
+                  >
+                    <Download size={18} /> Download Inventory
+                  </button>
+                  {(role === "admin" || role === "dev") && (
+                    <button 
+                      onClick={() => setActiveTab("add-product")}
+                      className={cn("text-white px-4 py-2 rounded-xl flex items-center gap-2", getThemeColor("bg"))}
+                    >
+                      <Plus size={20} /> Add Product
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Inventory Stats */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {[
+                  { label: "Total SKU", value: products.length, icon: Package },
+                  { label: "Total Stock Qty", value: products.reduce((sum, p) => sum + p.qty, 0), icon: ShoppingCart },
+                  { label: "Total Cost Value", value: `${products.reduce((sum, p) => sum + (p.cost_price * p.qty), 0).toFixed(2)} ৳`, icon: Download },
+                  { label: "Total Selling Value", value: `${products.reduce((sum, p) => sum + (p.selling_price * p.qty), 0).toFixed(2)} ৳`, icon: LayoutDashboard },
+                ].map((stat, i) => (
+                  <div key={i} className={cn("p-6 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                    <div className="flex items-center gap-3 mb-2">
+                      <stat.icon size={18} className="text-zinc-500" />
+                      <div className="text-zinc-500 text-xs uppercase tracking-wider">{stat.label}</div>
+                    </div>
+                    <div className={cn("text-2xl font-bold", i === 3 ? getThemeColor("text") : "")}>{stat.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className={cn("rounded-3xl border overflow-hidden transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left min-w-[800px]">
+                    <thead className={cn("text-zinc-400 text-xs uppercase tracking-wider", isDark ? "bg-zinc-800/50" : "bg-zinc-50")}>
+                      <tr>
+                        <th className="px-6 py-4">Code</th>
+                        <th className="px-6 py-4">Description</th>
+                        <th className="px-6 py-4">Category</th>
+                        <th className="px-6 py-4">Cost</th>
+                        <th className="px-6 py-4">Selling</th>
+                        <th className="px-6 py-4">Stock</th>
+                      </tr>
+                    </thead>
+                    <tbody className={cn("divide-y", isDark ? "divide-zinc-800" : "divide-zinc-100")}>
+                      {products.map(p => (
+                        <tr key={p.code} className={cn("transition-all", isDark ? "hover:bg-zinc-800/30" : "hover:bg-zinc-50")}>
+                          <td className="px-6 py-4 font-mono text-sm">{p.code}</td>
+                          <td className="px-6 py-4">{p.description}</td>
+                          <td className="px-6 py-4"><span className={cn("px-2 py-1 rounded text-xs", isDark ? "bg-zinc-800" : "bg-zinc-100")}>{p.category}</span></td>
+                          <td className="px-6 py-4">{(p.cost_price || 0).toFixed(2)}</td>
+                          <td className={cn("px-6 py-4 font-bold", getThemeColor("text"))}>{(p.selling_price || 0).toFixed(2)}</td>
+                          <td className="px-6 py-4">
+                            <span className={cn(
+                              "px-2 py-1 rounded-full text-[10px] font-bold",
+                              p.qty < 5 ? "bg-red-500/10 text-red-500" : cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text"))
+                            )}>
+                              {p.qty} units
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === "add-product" && (
+            <motion.div 
+              key="add-product"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="max-w-2xl mx-auto"
+            >
+              <div className="bg-zinc-900 p-8 rounded-3xl border border-zinc-800 shadow-2xl">
+                <h2 className="text-2xl font-bold mb-6">Add New Product</h2>
+                <form onSubmit={handleAddProduct} className="grid grid-cols-2 gap-6">
+                  <div className="col-span-2">
+                    <label className="block text-sm text-zinc-400 mb-2">Product Code</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newProduct.code}
+                      onChange={e => setNewProduct({...newProduct, code: e.target.value})}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm text-zinc-400 mb-2">Description</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newProduct.description}
+                      onChange={e => setNewProduct({...newProduct, description: e.target.value})}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Category</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newProduct.category}
+                      onChange={e => setNewProduct({...newProduct, category: e.target.value})}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Cost Price</label>
+                    <input 
+                      type="number" 
+                      required
+                      value={newProduct.cost_price}
+                      onChange={e => setNewProduct({...newProduct, cost_price: Number(e.target.value)})}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Quantity</label>
+                    <input 
+                      type="number" 
+                      required
+                      value={newProduct.qty}
+                      onChange={e => setNewProduct({...newProduct, qty: Number(e.target.value)})}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <div className={cn("border p-3 rounded-xl w-full", getThemeColor("bg"), "bg-opacity-10", getThemeColor("border").replace("border-", "border-opacity-20 border-"))}>
+                      <div className={cn("text-[10px] uppercase font-bold", getThemeColor("text"))}>Auto Selling Price (+12%)</div>
+                      <div className="text-xl font-bold">{((newProduct.cost_price || 0) * 1.12).toFixed(2)} ৳</div>
+                    </div>
+                  </div>
+                  <div className="col-span-2 flex gap-4 mt-4">
+                    <button 
+                      type="submit"
+                      className={cn("flex-1 text-white font-bold py-4 rounded-2xl", getThemeColor("bg"))}
+                    >
+                      Save Product
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => setActiveTab("inventory")}
+                      className="px-8 bg-zinc-800 text-zinc-400 font-bold py-4 rounded-2xl"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === "members" && (
+            <motion.div 
+              key="members"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-8"
+            >
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <h2 className="text-2xl font-bold">Membership Directory</h2>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full sm:w-auto">
+                  <div className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-xl border w-full sm:w-64 transition-colors",
+                    isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
+                  )}>
+                    <Search size={18} className="text-zinc-500" />
+                    <input 
+                      type="text" 
+                      placeholder="Search by name or phone..." 
+                      value={memberDirectorySearch}
+                      onChange={(e) => setMemberDirectorySearch(e.target.value)}
+                      className={cn("bg-transparent border-none focus:outline-none text-sm w-full", isDark ? "text-white" : "text-zinc-900")}
+                    />
+                  </div>
+                  <button 
+                    onClick={() => setShowRegisterModal(true)}
+                    className={cn("text-white px-4 py-2 rounded-xl flex items-center justify-center gap-2 whitespace-nowrap", getThemeColor("bg"))}
+                  >
+                    <Plus size={20} /> Register Member
+                  </button>
+                </div>
+              </div>
+
+              <div className={cn("rounded-3xl border overflow-hidden transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left min-w-[600px]">
+                    <thead className={cn("text-zinc-400 text-xs uppercase tracking-wider", isDark ? "bg-zinc-800/50" : "bg-zinc-50")}>
+                      <tr>
+                        <th className="px-6 py-4">Name</th>
+                        <th className="px-6 py-4">Phone</th>
+                        <th className="px-6 py-4">Points</th>
+                        <th className="px-6 py-4">Joined</th>
+                        <th className="px-6 py-4">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className={cn("divide-y", isDark ? "divide-zinc-800" : "divide-zinc-100")}>
+                      {allMembers
+                        .filter(m => 
+                          m.name.toLowerCase().includes(memberDirectorySearch.toLowerCase()) || 
+                          m.phone.includes(memberDirectorySearch)
+                        )
+                        .map(m => (
+                          <tr key={m.phone} className={cn("transition-all", isDark ? "hover:bg-zinc-800/30" : "hover:bg-zinc-50")}>
+                            <td className="px-6 py-4 font-bold">{m.name}</td>
+                            <td className="px-6 py-4 text-zinc-400">{m.phone}</td>
+                            <td className="px-6 py-4">
+                              <span className={cn("px-3 py-1 rounded-full font-bold text-sm", getThemeColor("bg"), "bg-opacity-10", getThemeColor("text"))}>
+                                {m.points} pts
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-zinc-500 text-sm">
+                              {m.created_at ? format(new Date(m.created_at), "MMM d, yyyy") : "-"}
+                            </td>
+                            <td className="px-6 py-4">
+                              <button 
+                                onClick={() => fetchMemberHistory(m.phone)}
+                                className={cn("hover:underline text-sm font-medium", getThemeColor("text"))}
+                              >
+                                View History
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === "reports" && (
+            <motion.div 
+              key="reports"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="space-y-8"
+            >
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <h2 className="text-2xl font-bold">Sales Reports</h2>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full sm:w-auto">
+                  <button 
+                    onClick={downloadSalesReport}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all border",
+                      isDark ? "bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700" : "bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-50 shadow-sm"
+                    )}
+                  >
+                    <Download size={18} /> Download Report
+                  </button>
+                  <div className={cn(
+                    "flex items-center gap-2 p-2 rounded-2xl border transition-colors",
+                    isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
+                  )}>
+                    <Calendar size={18} className="text-zinc-500 ml-2" />
+                    <input 
+                      type="date" 
+                      value={dateRange.start}
+                      onChange={e => setDateRange({...dateRange, start: e.target.value})}
+                      className={cn("bg-transparent border-none text-sm focus:outline-none", isDark ? "text-white" : "text-zinc-900")}
+                    />
+                    <span className="text-zinc-500">to</span>
+                    <input 
+                      type="date" 
+                      value={dateRange.end}
+                      onChange={e => setDateRange({...dateRange, end: e.target.value})}
+                      className={cn("bg-transparent border-none text-sm focus:outline-none", isDark ? "text-white" : "text-zinc-900")}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                {[
+                  { label: "Total Revenue", value: `${sales.reduce((sum, s) => sum + (s.total_price || 0), 0).toFixed(2)} ৳`, color: getThemeColor("text") },
+                  { label: "Total Sales", value: sales.length },
+                  { label: "Items Sold", value: sales.reduce((sum, s) => sum + s.qty, 0) },
+                ].map((stat, i) => (
+                  <div key={i} className={cn("p-6 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                    <div className="text-zinc-500 text-sm mb-1">{stat.label}</div>
+                    <div className={cn("text-3xl font-bold", stat.color || "")}>{stat.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className={cn("rounded-3xl border overflow-hidden transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left min-w-[800px]">
+                    <thead className={cn("text-zinc-400 text-xs uppercase tracking-wider", isDark ? "bg-zinc-800/50" : "bg-zinc-50")}>
+                      <tr>
+                        <th className="px-6 py-4">Date</th>
+                        <th className="px-6 py-4">Product</th>
+                        <th className="px-6 py-4">Qty</th>
+                        <th className="px-6 py-4">Total</th>
+                        <th className="px-6 py-4">Member</th>
+                        <th className="px-6 py-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className={cn("divide-y", isDark ? "divide-zinc-800" : "divide-zinc-100")}>
+                      {sales.map(s => (
+                        <tr key={s.id} className={cn("transition-all", isDark ? "hover:bg-zinc-800/30" : "hover:bg-zinc-50")}>
+                          <td className="px-6 py-4 text-sm">{s.date}</td>
+                          <td className="px-6 py-4">
+                            <div className="font-medium">{s.description}</div>
+                            <div className="text-[10px] text-zinc-500 font-mono">{s.product_code}</div>
+                            {s.transaction_id && (
+                              <div className="text-[8px] text-zinc-600 mt-1 uppercase">{s.transaction_id}</div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4">{s.qty}</td>
+                          <td className="px-6 py-4 font-bold">{(s.total_price || 0).toFixed(2)}</td>
+                          <td className="px-6 py-4 text-zinc-500 text-sm">{s.member_phone || "-"}</td>
+                          <td className="px-6 py-4 text-right">
+                            {s.transaction_id && (
+                              <button 
+                                onClick={() => openBillPreview(s.transaction_id)}
+                                className={cn("text-xs font-bold hover:underline", getThemeColor("text"))}
+                              >
+                                Preview Bill
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === "about" && (
+            <motion.div 
+              key="about"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-4xl mx-auto space-y-8 pb-12"
+            >
+              <div className="text-center space-y-4">
+                <h2 className="text-4xl font-bold">About This Application</h2>
+                <p className="text-zinc-500">A comprehensive guide on how to use the POS and Inventory Management System.</p>
+              </div>
+
+              <div className="grid gap-6">
+                <section className={cn("p-8 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                  <h3 className={cn("text-xl font-bold mb-4 flex items-center gap-2", getThemeColor("text"))}>
+                    <ShoppingCart size={24} /> POS (Point of Sale)
+                  </h3>
+                  <p className="text-sm leading-relaxed text-zinc-400">
+                    The POS tab is where you process sales. You can search for products by their code or description. 
+                    Clicking on a product adds it to the "Current Order" cart. You can manage quantities, apply custom discounts, 
+                    and redeem membership points. Once a sale is completed, a bill receipt is automatically generated for download.
+                  </p>
+                </section>
+
+                <section className={cn("p-8 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                  <h3 className={cn("text-xl font-bold mb-4 flex items-center gap-2", getThemeColor("text"))}>
+                    <Package size={24} /> Inventory Management
+                  </h3>
+                  <p className="text-sm leading-relaxed text-zinc-400">
+                    Manage your stock here. You can view total stock statistics, SKU counts, and total values. 
+                    Adding new products or editing existing ones is done through this interface. 
+                    You can track cost prices, selling prices, and current stock levels in real-time.
+                  </p>
+                </section>
+
+                <section className={cn("p-8 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                  <h3 className={cn("text-xl font-bold mb-4 flex items-center gap-2", getThemeColor("text"))}>
+                    <Users size={24} /> Membership Directory
+                  </h3>
+                  <p className="text-sm leading-relaxed text-zinc-400">
+                    Register and manage your customers. Members earn points on every purchase (1 point per 100 Taka). 
+                    These points can be redeemed for discounts on future bills. You can view a member's transaction history 
+                    and current point balance.
+                  </p>
+                </section>
+
+                <section className={cn("p-8 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                  <h3 className={cn("text-xl font-bold mb-4 flex items-center gap-2", getThemeColor("text"))}>
+                    <LayoutDashboard size={24} /> Sales Reports
+                  </h3>
+                  <p className="text-sm leading-relaxed text-zinc-400">
+                    Analyze your business performance. Filter sales by date range, view total revenue, and see which items are selling best. 
+                    You can also download detailed Excel reports for accounting purposes and preview/re-print past bills.
+                  </p>
+                </section>
+
+                <section className={cn("p-8 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                  <h3 className={cn("text-xl font-bold mb-4 flex items-center gap-2", getThemeColor("text"))}>
+                    <Settings size={24} /> Dev Options & Settings
+                  </h3>
+                  <p className="text-sm leading-relaxed text-zinc-400">
+                    Customize your application. Change the shop name, update the logo, set your theme color, 
+                    and manage security passwords for Admin and Cashier roles. You can also perform bulk stock imports 
+                    using Excel files.
+                  </p>
+                </section>
+
+                <div className={cn("p-10 rounded-3xl border text-center space-y-4 transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-md")}>
+                  <p className="text-lg font-medium">
+                    The apps Is made By <span className={cn("font-bold", getThemeColor("text"))}>Double Design</span>.
+                  </p>
+                  <div className="space-y-1 text-zinc-400">
+                    <p>For any information call: <span className="text-white font-mono">01888514118</span>, <span className="text-white font-mono">09638139968</span></p>
+                    <p>or visit <a href="#" className={cn("hover:underline", getThemeColor("text"))}>Double Design Facebook Page</a></p>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === "dev" && (
+            <motion.div 
+              key="dev"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="space-y-8 max-w-4xl mx-auto"
+            >
+              <h2 className="text-2xl font-bold">Developer Control Panel</h2>
+              
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Bulk Upload */}
+                <div className={cn("p-8 rounded-3xl border space-y-6 transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                  <div className={cn("flex items-center gap-3", getThemeColor("text"))}>
+                    <Upload size={24} />
+                    <h3 className="text-lg font-bold">Bulk Stock Import</h3>
+                  </div>
+                  <p className="text-sm text-zinc-400">Upload an Excel file with columns: code, description, category, cost_price, selling_price, qty.</p>
+                  <div className="relative group">
+                    <input 
+                      type="file" 
+                      accept=".xlsx, .xls"
+                      onChange={handleExcelUpload}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    />
+                    <div className={cn(
+                      "border-2 border-dashed rounded-2xl p-8 text-center transition-all", 
+                      isDark ? "border-zinc-700" : "border-zinc-200",
+                      `group-hover:${getThemeColor("border")}/50`
+                    )}>
+                      <Download className="mx-auto mb-4 text-zinc-500" size={32} />
+                      <p className="text-sm font-medium">Click or drag Excel file here</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Settings */}
+                <div className={cn("p-8 rounded-3xl border space-y-6 transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                  <div className={cn("flex items-center gap-3", getThemeColor("text"))}>
+                    <Settings size={24} />
+                    <h3 className="text-lg font-bold">System Settings</h3>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs text-zinc-500 uppercase mb-2">Shop Name</label>
+                      <div className="flex gap-2">
+                        <input 
+                          type="text" 
+                          value={shopName}
+                          onChange={e => setShopName(e.target.value)}
+                          className={cn("flex-1 border rounded-xl px-4 py-2", isDark ? "bg-zinc-800 border-zinc-700" : "bg-white border-zinc-200")}
+                        />
+                        <button onClick={updateShopName} className={cn("px-4 rounded-xl text-xs", isDark ? "bg-zinc-700" : "bg-zinc-100")}>Save</button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-zinc-500 uppercase mb-2">App Logo URL</label>
+                      <div className="flex gap-2">
+                        <input 
+                          type="text" 
+                          value={appLogo}
+                          onChange={e => setAppLogo(e.target.value)}
+                          placeholder="https://example.com/logo.png"
+                          className={cn("flex-1 border rounded-xl px-4 py-2", isDark ? "bg-zinc-800 border-zinc-700" : "bg-white border-zinc-200")}
+                        />
+                        <button onClick={() => updateSetting("app_logo", appLogo)} className={cn("px-4 rounded-xl text-xs", isDark ? "bg-zinc-700" : "bg-zinc-100")}>Save</button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-zinc-500 uppercase mb-2">Bill QR Data</label>
+                      <div className="flex gap-2">
+                        <input 
+                          type="text" 
+                          value={billQrData}
+                          onChange={e => setBillQrData(e.target.value)}
+                          placeholder="Website or Payment Link"
+                          className={cn("flex-1 border rounded-xl px-4 py-2", isDark ? "bg-zinc-800 border-zinc-700" : "bg-white border-zinc-200")}
+                        />
+                        <button onClick={() => updateSetting("bill_qr_data", billQrData)} className={cn("px-4 rounded-xl text-xs", isDark ? "bg-zinc-700" : "bg-zinc-100")}>Save</button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-zinc-500 uppercase mb-2">App Theme</label>
+                      <div className="flex gap-2">
+                        {Object.keys(themeColors).map(t => (
+                          <button
+                            key={t}
+                            onClick={() => {
+                              setAppTheme(t);
+                              updateSetting("app_theme", t);
+                            }}
+                            className={cn(
+                              "w-8 h-8 rounded-full border-2 transition-all",
+                              appTheme === t ? (isDark ? "border-white" : "border-zinc-900") : "border-transparent",
+                              themeColors[t].split(' ')[1]
+                            )}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-zinc-500 uppercase mb-2">Admin Password</label>
+                      <div className="flex gap-2">
+                        <input 
+                          type="password" 
+                          placeholder="New Admin Password"
+                          onChange={e => setPasswords({...passwords, admin: e.target.value})}
+                          className={cn("flex-1 border rounded-xl px-4 py-2", isDark ? "bg-zinc-800 border-zinc-700" : "bg-white border-zinc-200")}
+                        />
+                        <button onClick={() => updatePassword("admin")} className={cn("px-4 rounded-xl text-xs", isDark ? "bg-zinc-700" : "bg-zinc-100")}>Update</button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-zinc-500 uppercase mb-2">Cashier Password</label>
+                      <div className="flex gap-2">
+                        <input 
+                          type="password" 
+                          placeholder="New Cashier Password"
+                          onChange={e => setPasswords({...passwords, cashier: e.target.value})}
+                          className={cn("flex-1 border rounded-xl px-4 py-2", isDark ? "bg-zinc-800 border-zinc-700" : "bg-white border-zinc-200")}
+                        />
+                        <button onClick={() => updatePassword("cashier")} className={cn("px-4 rounded-xl text-xs", isDark ? "bg-zinc-700" : "bg-zinc-100")}>Update</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Bill Preview Modal */}
+        <AnimatePresence>
+          {showPreviewModal && previewBillData && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className={cn(
+                  "border w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] transition-colors",
+                  isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"
+                )}
+              >
+                <div className={cn("p-6 border-b flex justify-between items-center transition-colors", isDark ? "border-zinc-800" : "border-zinc-100")}>
+                  <h3 className="text-xl font-bold">Bill Preview</h3>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => handleShare('whatsapp')}
+                      className="bg-emerald-500/10 text-emerald-500 p-2 rounded-lg hover:bg-emerald-500/20 transition-all"
+                      title="Share to WhatsApp"
+                    >
+                      <Share2 size={20} />
+                    </button>
+                    <button onClick={() => setShowPreviewModal(false)} className="text-zinc-500 hover:text-red-500 p-2 transition-colors">
+                      <X size={24} />
+                    </button>
+                  </div>
+                </div>
+                
+                <div className={cn("flex-1 overflow-auto p-8 flex justify-center transition-colors", isDark ? "bg-zinc-800" : "bg-zinc-50")}>
+                  <div 
+                    ref={previewBillRef}
+                    className="w-[400px] bg-white p-8 text-black font-mono shadow-xl"
+                  >
+                    <div className="text-center border-b-2 border-black pb-4 mb-4">
+                      {appLogo && <img src={appLogo} alt="Logo" className="h-16 mx-auto mb-2 object-contain" />}
+                      <h2 className="text-2xl font-bold uppercase">{shopName}</h2>
+                      <p className="text-sm">{format(new Date(previewBillData.date), "PPP p")}</p>
+                    </div>
+
+                    <div className="mb-4">
+                      <div className="grid grid-cols-4 font-bold border-b border-black pb-1 mb-2">
+                        <span className="col-span-2">Item</span>
+                        <span className="text-right">Qty</span>
+                        <span className="text-right">Price</span>
+                      </div>
+                      {previewBillData.items.map((item, i) => (
+                        <div key={i} className="grid grid-cols-4 text-sm mb-1">
+                          <span className="col-span-2 truncate">{item.description}</span>
+                          <span className="text-right">x{item.cartQty}</span>
+                          <span className="text-right">{((item.selling_price || 0) * item.cartQty).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="border-t border-black pt-2 space-y-1">
+                      <div className="flex justify-between">
+                        <span>Subtotal:</span>
+                        <span>{(previewBillData.total + previewBillData.discount).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-red-600">
+                        <span>Discount:</span>
+                        <span>-{(previewBillData.discount || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between font-bold text-lg border-t-2 border-black pt-1">
+                        <span>TOTAL:</span>
+                        <span>{(previewBillData.total || 0).toFixed(2)} Taka</span>
+                      </div>
+                    </div>
+
+                    {previewBillData.member && (
+                      <div className="mt-6 p-3 bg-zinc-100 rounded border border-zinc-300">
+                        <p className="text-xs font-bold uppercase mb-1">Membership Info</p>
+                        <p className="text-sm">Name: {previewBillData.member.name}</p>
+                        <p className="text-sm">Phone: {previewBillData.member.phone}</p>
+                        <div className="mt-2 pt-2 border-t border-zinc-300 text-xs space-y-1">
+                          <div className="flex justify-between">
+                            <span>Points Earned:</span>
+                            <span>+{previewBillData.pointsEarned}</span>
+                          </div>
+                          <div className="flex justify-between text-red-600">
+                            <span>Points Redeemed:</span>
+                            <span>-{previewBillData.pointsRedeemed}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="mt-8 text-center text-xs space-y-4">
+                      <p>Thank you for shopping with us!</p>
+                      {billQrData && (
+                        <div className="flex justify-center">
+                          <QRCodeSVG value={billQrData} size={80} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className={cn("p-6 border-t flex gap-4 transition-colors", isDark ? "border-zinc-800 bg-zinc-900" : "border-zinc-100 bg-white")}>
+                  <button 
+                    onClick={() => setShowPreviewModal(false)}
+                    className={cn("flex-1 font-bold py-3 rounded-xl transition-colors", isDark ? "bg-zinc-800 text-zinc-400" : "bg-zinc-100 text-zinc-500")}
+                  >
+                    Close
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (previewBillRef.current) {
+                        const content = previewBillRef.current.innerHTML;
+                        const printWindow = window.open("", "_blank", "width=400,height=600");
+                        if (printWindow) {
+                          printWindow.document.write(`
+                            <html>
+                              <head>
+                                <title>Bill Receipt</title>
+                                <style>
+                                  body { font-family: monospace; padding: 20px; }
+                                  @media print { body { padding: 0; } }
+                                </style>
+                              </head>
+                              <body>${content}</body>
+                            </html>
+                          `);
+                          printWindow.document.close();
+                          printWindow.focus();
+                          setTimeout(() => {
+                            printWindow.print();
+                            printWindow.close();
+                          }, 250);
+                        }
+                      }
+                    }}
+                    className={cn("flex-1 text-white font-bold py-3 rounded-xl", getThemeColor("bg"))}
+                  >
+                    Print Again
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </main>
+    </div>
+  );
+}
