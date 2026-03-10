@@ -218,7 +218,12 @@ const Bill = ({
         className="w-[400px] bg-white p-8 text-black font-mono"
       >
         <div className="text-center border-b-2 border-black pb-4 mb-4">
-          {appLogo && <img src={appLogo} alt="Logo" className="h-16 mx-auto mb-2 object-contain" />}
+          <img 
+            src={appLogo || "https://cdn-icons-png.flaticon.com/512/857/857455.png"} 
+            alt="Logo" 
+            className="h-16 mx-auto mb-2 object-contain" 
+            referrerPolicy="no-referrer"
+          />
           <h2 className="text-2xl font-bold uppercase">{shopName}</h2>
           <p className="text-sm">{format(new Date(), "PPP p")}</p>
         </div>
@@ -2038,7 +2043,12 @@ export default function App() {
                     className="w-[400px] bg-white p-8 text-black font-mono shadow-xl"
                   >
                     <div className="text-center border-b-2 border-black pb-4 mb-4">
-                      {appLogo && <img src={appLogo} alt="Logo" className="h-16 mx-auto mb-2 object-contain" />}
+                      <img 
+                        src={appLogo || "https://cdn-icons-png.flaticon.com/512/857/857455.png"} 
+                        alt="Logo" 
+                        className="h-16 mx-auto mb-2 object-contain" 
+                        referrerPolicy="no-referrer"
+                      />
                       <h2 className="text-2xl font-bold uppercase">{shopName}</h2>
                       <p className="text-sm">{format(new Date(previewBillData.date), "PPP p")}</p>
                     </div>
