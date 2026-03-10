@@ -88,6 +88,130 @@ interface CartItem extends Product {
 
 // --- Components ---
 
+const SplashScreen = ({ onComplete, shopName, appLogo }: { onComplete: () => void; shopName: string; appLogo: string }) => {
+  useEffect(() => {
+    const timer = setTimeout(onComplete, 3500);
+    return () => clearTimeout(timer);
+  }, [onComplete]);
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.3,
+      },
+    },
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20, scale: 0.8 },
+    visible: { 
+      opacity: 1, 
+      y: 0, 
+      scale: 1,
+      transition: { type: "spring", stiffness: 100 }
+    },
+  };
+
+  const boxVariants = {
+    hidden: { opacity: 0, scale: 0 },
+    visible: { 
+      opacity: 1, 
+      scale: 1,
+      transition: { type: "spring", stiffness: 200, damping: 10 }
+    },
+  };
+
+  return (
+    <motion.div
+      initial="hidden"
+      animate="visible"
+      exit={{ opacity: 0, scale: 1.1, filter: "blur(10px)" }}
+      variants={containerVariants}
+      className="fixed inset-0 z-[9999] bg-zinc-950 flex flex-col items-center justify-center overflow-hidden"
+    >
+      {/* Animated Background Boxes */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
+        <div className="grid grid-cols-4 gap-4">
+          {[...Array(16)].map((_, i) => (
+            <motion.div
+              key={i}
+              variants={boxVariants}
+              className="w-16 h-16 bg-emerald-500/20 rounded-xl border border-emerald-500/30"
+            />
+          ))}
+        </div>
+      </div>
+
+      <motion.div variants={itemVariants} className="relative z-10 flex flex-col items-center">
+        {appLogo ? (
+          <motion.img 
+            src={appLogo} 
+            alt="Logo" 
+            className="h-24 mb-6 object-contain"
+            initial={{ rotate: -10 }}
+            animate={{ rotate: 0 }}
+            transition={{ duration: 0.5 }}
+          />
+        ) : (
+          <motion.div 
+            className="w-24 h-24 bg-emerald-500 rounded-3xl flex items-center justify-center mb-6 shadow-2xl shadow-emerald-500/20"
+            variants={itemVariants}
+          >
+            <ShoppingCart className="text-white" size={48} />
+          </motion.div>
+        )}
+        
+        <motion.h1 
+          variants={itemVariants}
+          className="text-4xl md:text-6xl font-black text-white tracking-tighter mb-2 text-center px-4"
+        >
+          {shopName.split('').map((char, i) => (
+            <motion.span
+              key={i}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 1 + (i * 0.05) }}
+            >
+              {char}
+            </motion.span>
+          ))}
+        </motion.h1>
+        
+        <motion.p 
+          variants={itemVariants}
+          className="text-emerald-500 font-mono tracking-widest uppercase text-sm"
+        >
+          Initializing System...
+        </motion.p>
+      </motion.div>
+
+      <motion.div 
+        className="absolute bottom-12 flex gap-2"
+        variants={containerVariants}
+      >
+        {[0, 1, 2].map((i) => (
+          <motion.div
+            key={i}
+            variants={boxVariants}
+            animate={{
+              scale: [1, 1.5, 1],
+              opacity: [0.3, 1, 0.3],
+            }}
+            transition={{
+              repeat: Infinity,
+              duration: 1,
+              delay: i * 0.2,
+            }}
+            className="w-2 h-2 bg-emerald-500 rounded-full"
+          />
+        ))}
+      </motion.div>
+    </motion.div>
+  );
+};
+
 const Login = ({ onLogin, shopName, appLogo, getThemeColor }: { onLogin: (role: Role) => void; shopName: string; appLogo: string; getThemeColor: (t: any) => string }) => {
   const [role, setRole] = useState<"cashier" | "admin" | "dev">("cashier");
   const [password, setPassword] = useState("");
@@ -301,6 +425,7 @@ const Bill = ({
 };
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
   const [role, setRole] = useState<Role>(null);
   const [activeTab, setActiveTab] = useState("pos");
   const [products, setProducts] = useState<Product[]>([]);
@@ -321,6 +446,8 @@ export default function App() {
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [newMemberData, setNewMemberData] = useState({ phone: "", name: "" });
   const [productSearch, setProductSearch] = useState("");
+  const [salesSearch, setSalesSearch] = useState("");
+  const [inventorySearch, setInventorySearch] = useState("");
   const [memberDirectorySearch, setMemberDirectorySearch] = useState("");
   const [notification, setNotification] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [appTheme, setAppTheme] = useState("emerald");
@@ -336,9 +463,12 @@ export default function App() {
   };
 
   useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  useEffect(() => {
     if (role) {
       fetchProducts();
-      fetchSettings();
       if (role === "admin" || role === "dev") {
         fetchSales();
         fetchAllMembers();
@@ -752,6 +882,18 @@ export default function App() {
     };
     return colors[appTheme]?.[type] || colors.emerald[type];
   };
+
+  if (showSplash) {
+    return (
+      <AnimatePresence>
+        <SplashScreen 
+          onComplete={() => setShowSplash(false)} 
+          shopName={shopName}
+          appLogo={appLogo}
+        />
+      </AnimatePresence>
+    );
+  }
 
   if (!role) return <Login onLogin={setRole} shopName={shopName} appLogo={appLogo} getThemeColor={getThemeColor} />;
 
@@ -1454,13 +1596,26 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               className="space-y-8"
             >
-              <div className="flex justify-between items-center">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <h2 className="text-2xl font-bold">Inventory Management</h2>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full sm:w-auto">
+                  <div className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-xl border w-full sm:w-64 transition-colors",
+                    isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
+                  )}>
+                    <Search size={18} className="text-zinc-500" />
+                    <input 
+                      type="text" 
+                      placeholder="Search by code, name, category..." 
+                      value={inventorySearch}
+                      onChange={(e) => setInventorySearch(e.target.value)}
+                      className={cn("bg-transparent border-none focus:outline-none text-sm w-full", isDark ? "text-white" : "text-zinc-900")}
+                    />
+                  </div>
                   <button 
                     onClick={downloadInventoryData}
                     className={cn(
-                      "px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all border",
+                      "px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all border",
                       isDark ? "bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700" : "bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-50 shadow-sm"
                     )}
                   >
@@ -1469,7 +1624,7 @@ export default function App() {
                   {(role === "admin" || role === "dev") && (
                     <button 
                       onClick={() => setActiveTab("add-product")}
-                      className={cn("text-white px-4 py-2 rounded-xl flex items-center gap-2", getThemeColor("bg"))}
+                      className={cn("text-white px-4 py-2 rounded-xl flex items-center justify-center gap-2 whitespace-nowrap", getThemeColor("bg"))}
                     >
                       <Plus size={20} /> Add Product
                     </button>
@@ -1509,7 +1664,13 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className={cn("divide-y", isDark ? "divide-zinc-800" : "divide-zinc-100")}>
-                      {products.map(p => (
+                      {products
+                        .filter(p => 
+                          p.code.toLowerCase().includes(inventorySearch.toLowerCase()) || 
+                          p.description.toLowerCase().includes(inventorySearch.toLowerCase()) ||
+                          p.category.toLowerCase().includes(inventorySearch.toLowerCase())
+                        )
+                        .map(p => (
                         <tr key={p.code} className={cn("transition-all", isDark ? "hover:bg-zinc-800/30" : "hover:bg-zinc-50")}>
                           <td className="px-6 py-4 font-mono text-sm">{p.code}</td>
                           <td className="px-6 py-4">{p.description}</td>
@@ -1708,6 +1869,19 @@ export default function App() {
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <h2 className="text-2xl font-bold">Sales Reports</h2>
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full sm:w-auto">
+                  <div className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-xl border w-full sm:w-64 transition-colors",
+                    isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
+                  )}>
+                    <Search size={18} className="text-zinc-500" />
+                    <input 
+                      type="text" 
+                      placeholder="Search by product, code, ID..." 
+                      value={salesSearch}
+                      onChange={(e) => setSalesSearch(e.target.value)}
+                      className={cn("bg-transparent border-none focus:outline-none text-sm w-full", isDark ? "text-white" : "text-zinc-900")}
+                    />
+                  </div>
                   <button 
                     onClick={downloadSalesReport}
                     className={cn(
@@ -1741,9 +1915,24 @@ export default function App() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                 {[
-                  { label: "Total Revenue", value: `${sales.reduce((sum, s) => sum + (s.total_price || 0), 0).toFixed(2)} ৳`, color: getThemeColor("text") },
-                  { label: "Total Sales", value: sales.length },
-                  { label: "Items Sold", value: sales.reduce((sum, s) => sum + s.qty, 0) },
+                  { label: "Total Revenue", value: `${sales.filter(s => 
+                    s.description.toLowerCase().includes(salesSearch.toLowerCase()) || 
+                    s.product_code.toLowerCase().includes(salesSearch.toLowerCase()) || 
+                    (s.transaction_id && s.transaction_id.toLowerCase().includes(salesSearch.toLowerCase())) ||
+                    (s.member_phone && s.member_phone.includes(salesSearch))
+                  ).reduce((sum, s) => sum + (s.total_price || 0), 0).toFixed(2)} ৳`, color: getThemeColor("text") },
+                  { label: "Total Sales", value: sales.filter(s => 
+                    s.description.toLowerCase().includes(salesSearch.toLowerCase()) || 
+                    s.product_code.toLowerCase().includes(salesSearch.toLowerCase()) || 
+                    (s.transaction_id && s.transaction_id.toLowerCase().includes(salesSearch.toLowerCase())) ||
+                    (s.member_phone && s.member_phone.includes(salesSearch))
+                  ).length },
+                  { label: "Items Sold", value: sales.filter(s => 
+                    s.description.toLowerCase().includes(salesSearch.toLowerCase()) || 
+                    s.product_code.toLowerCase().includes(salesSearch.toLowerCase()) || 
+                    (s.transaction_id && s.transaction_id.toLowerCase().includes(salesSearch.toLowerCase())) ||
+                    (s.member_phone && s.member_phone.includes(salesSearch))
+                  ).reduce((sum, s) => sum + s.qty, 0) },
                 ].map((stat, i) => (
                   <div key={i} className={cn("p-6 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                     <div className="text-zinc-500 text-sm mb-1">{stat.label}</div>
@@ -1766,7 +1955,14 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className={cn("divide-y", isDark ? "divide-zinc-800" : "divide-zinc-100")}>
-                      {sales.map(s => (
+                      {sales
+                        .filter(s => 
+                          s.description.toLowerCase().includes(salesSearch.toLowerCase()) || 
+                          s.product_code.toLowerCase().includes(salesSearch.toLowerCase()) || 
+                          (s.transaction_id && s.transaction_id.toLowerCase().includes(salesSearch.toLowerCase())) ||
+                          (s.member_phone && s.member_phone.includes(salesSearch))
+                        )
+                        .map(s => (
                         <tr key={s.id} className={cn("transition-all", isDark ? "hover:bg-zinc-800/30" : "hover:bg-zinc-50")}>
                           <td className="px-6 py-4 text-sm">{s.date}</td>
                           <td className="px-6 py-4">

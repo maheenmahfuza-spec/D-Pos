@@ -2,6 +2,7 @@ import express from "express";
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
+import { google } from "googleapis";
 
 const app = express();
 app.use(express.json());
@@ -63,6 +64,21 @@ db.exec(`
   );
 `);
 
+// Google OAuth Setup
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
+);
+
+const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
+
+// Helper to get tokens from DB
+const getGoogleTokens = () => {
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'google_tokens'").get() as any;
+  return row ? JSON.parse(row.value) : null;
+};
+
 // Seed initial data
 const seedSettings = db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
 seedSettings.run("shop_name", "SportsStock Pro");
@@ -83,6 +99,94 @@ app.post("/api/login", (req, res) => {
     res.json({ success: true, role });
   } else {
     res.status(401).json({ success: false, message: "Invalid credentials" });
+  }
+});
+
+// Google Auth Routes
+app.get("/api/auth/google/url", (req, res) => {
+  const url = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: SCOPES,
+    prompt: 'consent'
+  });
+  res.json({ url });
+});
+
+app.get("/api/auth/google/callback", async (req, res) => {
+  const { code } = req.query;
+  try {
+    const { tokens } = await oauth2Client.getToken(code as string);
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run('google_tokens', JSON.stringify(tokens));
+    
+    res.send(`
+      <html>
+        <body style="font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f4f4f5;">
+          <div style="text-align: center; padding: 2rem; background: white; border-radius: 1rem; shadow: 0 10px 15px -3px rgba(0,0,0,0.1);">
+            <h1 style="color: #10b981;">Connected Successfully!</h1>
+            <p>Google Sheets integration is now active. You can close this window.</p>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS' }, '*');
+                setTimeout(() => window.close(), 2000);
+              }
+            </script>
+          </div>
+        </body>
+      </html>
+    `);
+  } catch (error: any) {
+    res.status(500).send("Authentication failed: " + error.message);
+  }
+});
+
+app.get("/api/auth/google/status", (req, res) => {
+  const tokens = getGoogleTokens();
+  res.json({ connected: !!tokens });
+});
+
+app.post("/api/sync/sheets", async (req, res) => {
+  const tokens = getGoogleTokens();
+  if (!tokens) return res.status(401).json({ success: false, message: "Not connected to Google" });
+
+  const sheetId = process.env.GOOGLE_SHEET_ID;
+  if (!sheetId) return res.status(400).json({ success: false, message: "GOOGLE_SHEET_ID not configured" });
+
+  try {
+    oauth2Client.setCredentials(tokens);
+    const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
+
+    // Fetch all sales
+    const allSales = db.prepare(`
+      SELECT s.*, p.description 
+      FROM sales s 
+      JOIN products p ON s.product_code = p.code 
+      ORDER BY date DESC, transaction_id DESC
+    `).all() as any[];
+
+    if (allSales.length === 0) {
+      return res.json({ success: true, message: "No data to sync" });
+    }
+
+    // Prepare data for sheets
+    const rows = [
+      ["Transaction ID", "Date", "Product Code", "Description", "Qty", "Total Price", "Discount", "Member Phone", "Points Earned", "Points Redeemed"],
+      ...allSales.map(s => [
+        s.transaction_id, s.date, s.product_code, s.description, s.qty, s.total_price, s.discount, s.member_phone || "N/A", s.points_earned, s.points_redeemed
+      ])
+    ];
+
+    // Clear and update sheet
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: 'Sheet1!A1',
+      valueInputOption: 'RAW',
+      requestBody: { values: rows },
+    });
+
+    res.json({ success: true, message: `Synced ${allSales.length} records` });
+  } catch (error: any) {
+    console.error("Sync error:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
