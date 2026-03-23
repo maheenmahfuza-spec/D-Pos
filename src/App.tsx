@@ -1261,11 +1261,17 @@ export default function App() {
         recallBill();
       }
 
-      // Space: Complete sale (only if not typing in an input)
-      if (e.key === " " && document.activeElement?.tagName !== "INPUT" && !showPaymentModal && !showSuccessModal && !showErrorModal) {
-        e.preventDefault();
-        if (cart.length > 0) {
-          setShowPaymentModal(true);
+      // Space: Complete sale
+      if (e.key === " " && !showPaymentModal && !showSuccessModal && !showErrorModal) {
+        const isSearchInput = document.activeElement === productSearchRef.current;
+        const isOtherInput = document.activeElement?.tagName === "INPUT" && !isSearchInput;
+        
+        // Trigger checkout if not in another input, AND (not in search input OR search input is empty)
+        if (!isOtherInput && (!isSearchInput || productSearch === "")) {
+          e.preventDefault();
+          if (cart.length > 0) {
+            setShowPaymentModal(true);
+          }
         }
       }
 
