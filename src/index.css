@@ -1,1 +1,19 @@
 @import "tailwindcss";
+
+@layer utilities {
+  @keyframes hold-glow {
+    0%, 100% {
+      background-color: #ef4444;
+      box-shadow: 0 0 5px #ef4444, 0 0 10px #ef4444;
+      opacity: 1;
+    }
+    50% {
+      background-color: #b91c1c;
+      box-shadow: 0 0 20px #ef4444, 0 0 40px #ef4444;
+      opacity: 0.8;
+    }
+  }
+  .animate-hold-glow {
+    animation: hold-glow 1.5s infinite;
+  }
+}

@@ -53,6 +53,13 @@ db.exec(`
     FOREIGN KEY(product_code) REFERENCES products(code)
   );
 
+  CREATE TABLE IF NOT EXISTS sales_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    transaction_id TEXT,
+    type TEXT,
+    amount REAL
+  );
+
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -215,7 +222,7 @@ async function startServer() {
   });
 
   app.post("/api/sales", (req, res) => {
-    const { items, member_phone, discount, points_redeemed } = req.body;
+    const { items, member_phone, discount, points_redeemed, payments } = req.body;
     const date = new Date().toISOString().split("T")[0];
     const transaction_id = `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
 
@@ -238,6 +245,14 @@ async function startServer() {
       for (const item of items) {
         db.prepare("INSERT INTO sales (transaction_id, date, product_code, qty, total_price, discount, member_phone, points_earned, points_redeemed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
           .run(transaction_id, date, item.code, item.qty, item.qty * item.price, discount / items.length, member_phone, pointsEarned / items.length, points_redeemed / items.length);
+      }
+
+      // Record payments
+      if (payments && Array.isArray(payments)) {
+        const insertPayment = db.prepare("INSERT INTO sales_payments (transaction_id, type, amount) VALUES (?, ?, ?)");
+        for (const p of payments) {
+          insertPayment.run(transaction_id, p.type, p.amount);
+        }
       }
 
       if (member_phone) {
