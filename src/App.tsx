@@ -643,6 +643,7 @@ export default function App() {
   const [showExchangeModal, setShowExchangeModal] = useState(false);
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [billNumberInput, setBillNumberInput] = useState("");
+  const [foundBillSales, setFoundBillSales] = useState<Sale[]>([]);
   const [heldBill, setHeldBill] = useState<{
     cart: CartItem[];
     member: Member | null;
@@ -695,6 +696,15 @@ export default function App() {
       fetchAllMembers();
     }
   }, [activeTab, role]);
+
+  useEffect(() => {
+    if (billNumberInput.length >= 6) {
+      const found = sales.filter(s => s.transaction_id === billNumberInput);
+      setFoundBillSales(found);
+    } else {
+      setFoundBillSales([]);
+    }
+  }, [billNumberInput, sales]);
 
   const fetchProducts = async () => {
     const res = await fetch("/api/products");
@@ -906,34 +916,45 @@ export default function App() {
     showNotification("Bill recalled", "success");
   };
 
-  const handleExchange = (billId: string) => {
+  const handleExchange = (billId: string, productCode?: string) => {
     const billSales = sales.filter(s => s.transaction_id === billId);
     if (billSales.length === 0) {
       showNotification("Bill not found", "error");
       return;
     }
-    const billDate = new Date(billSales[0].created_at);
+    const billDate = new Date(billSales[0].date);
     const diff = differenceInDays(new Date(), billDate);
     if (diff > 3) {
       showNotification("Exchange only possible within 3 days", "error");
       return;
     }
 
+    const itemsToExchange = productCode 
+      ? billSales.filter(s => s.product_code === productCode)
+      : billSales;
+
     // Put items back to stock
     setProducts(prev => prev.map(p => {
-      const saleItem = billSales.find(s => s.product_code === p.code);
+      const saleItem = itemsToExchange.find(s => s.product_code === p.code);
       if (saleItem) {
         return { ...p, qty: p.qty + saleItem.qty };
       }
       return p;
     }));
 
+    // Remove sales from records
+    if (productCode) {
+      setSales(prev => prev.filter(s => !(s.transaction_id === billId && s.product_code === productCode)));
+    } else {
+      setSales(prev => prev.filter(s => s.transaction_id !== billId));
+    }
+
     // Add items to cart for exchange
-    const exchangeItems: CartItem[] = billSales.map(s => {
+    const exchangeItems: CartItem[] = itemsToExchange.map(s => {
       const product = products.find(p => p.code === s.product_code);
       return {
         code: s.product_code,
-        description: s.product_description,
+        description: s.description,
         category: product?.category || "",
         cost_price: product?.cost_price || 0,
         selling_price: s.selling_price,
@@ -942,28 +963,32 @@ export default function App() {
       };
     });
 
-    setCart(exchangeItems);
+    setCart(prev => [...prev, ...exchangeItems]);
     setShowExchangeModal(false);
     setBillNumberInput("");
     showNotification("Items added to cart for exchange. Stock updated.", "success");
   };
 
-  const handleReturn = (billId: string) => {
+  const handleReturn = (billId: string, productCode?: string) => {
     const billSales = sales.filter(s => s.transaction_id === billId);
     if (billSales.length === 0) {
       showNotification("Bill not found", "error");
       return;
     }
-    const billDate = new Date(billSales[0].created_at);
+    const billDate = new Date(billSales[0].date);
     const diff = differenceInDays(new Date(), billDate);
     if (diff > 3) {
       showNotification("Return only possible within 3 days", "error");
       return;
     }
 
+    const itemsToReturn = productCode 
+      ? billSales.filter(s => s.product_code === productCode)
+      : billSales;
+
     // Put items back to stock
     setProducts(prev => prev.map(p => {
-      const saleItem = billSales.find(s => s.product_code === p.code);
+      const saleItem = itemsToReturn.find(s => s.product_code === p.code);
       if (saleItem) {
         return { ...p, qty: p.qty + saleItem.qty };
       }
@@ -971,10 +996,16 @@ export default function App() {
     }));
 
     // Remove sales from records
-    setSales(prev => prev.filter(s => s.transaction_id !== billId));
+    if (productCode) {
+      setSales(prev => prev.filter(s => !(s.transaction_id === billId && s.product_code === productCode)));
+    } else {
+      setSales(prev => prev.filter(s => s.transaction_id !== billId));
+    }
     
-    setShowReturnModal(false);
-    setBillNumberInput("");
+    if (!productCode || billSales.length === 1) {
+      setShowReturnModal(false);
+      setBillNumberInput("");
+    }
     showNotification("Items returned to stock. Sale record removed.", "success");
   };
 
@@ -2878,7 +2909,7 @@ export default function App() {
               >
                 <div className="flex justify-between items-center">
                   <h3 className="text-2xl font-bold">Exchange Product</h3>
-                  <button onClick={() => setShowExchangeModal(false)} className="text-zinc-500 hover:text-red-500">
+                  <button onClick={() => { setShowExchangeModal(false); setBillNumberInput(""); setFoundBillSales([]); }} className="text-zinc-500 hover:text-red-500">
                     <X size={24} />
                   </button>
                 </div>
@@ -2895,11 +2926,36 @@ export default function App() {
                     )}
                     autoFocus
                   />
+
+                  {foundBillSales.length > 0 && (
+                    <div className="space-y-3 max-h-60 overflow-auto p-2">
+                      <p className="text-xs font-bold text-zinc-500 uppercase">Items in this Bill:</p>
+                      {foundBillSales.map((item, i) => (
+                        <div key={i} className={cn("flex items-center justify-between p-3 rounded-xl border", isDark ? "bg-zinc-800 border-zinc-700" : "bg-zinc-50 border-zinc-200")}>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold truncate">{item.description}</p>
+                            <p className="text-xs text-zinc-500">Qty: {item.qty} | Price: {item.selling_price}</p>
+                          </div>
+                          <button 
+                            onClick={() => handleExchange(billNumberInput, item.product_code)}
+                            className={cn("px-3 py-1 rounded-lg text-xs font-bold text-white", getThemeColor("bg"))}
+                          >
+                            Exchange
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <button 
                     onClick={() => handleExchange(billNumberInput)}
-                    className={cn("w-full py-4 rounded-2xl text-white font-bold transition-all", getThemeColor("bg"))}
+                    disabled={foundBillSales.length === 0}
+                    className={cn(
+                      "w-full py-4 rounded-2xl text-white font-bold transition-all", 
+                      foundBillSales.length > 0 ? getThemeColor("bg") : "bg-zinc-500 cursor-not-allowed"
+                    )}
                   >
-                    Proceed with Exchange
+                    Exchange All Items
                   </button>
                 </div>
               </motion.div>
@@ -2919,7 +2975,7 @@ export default function App() {
               >
                 <div className="flex justify-between items-center">
                   <h3 className="text-2xl font-bold">Return Product</h3>
-                  <button onClick={() => setShowReturnModal(false)} className="text-zinc-500 hover:text-red-500">
+                  <button onClick={() => { setShowReturnModal(false); setBillNumberInput(""); setFoundBillSales([]); }} className="text-zinc-500 hover:text-red-500">
                     <X size={24} />
                   </button>
                 </div>
@@ -2936,11 +2992,36 @@ export default function App() {
                     )}
                     autoFocus
                   />
+
+                  {foundBillSales.length > 0 && (
+                    <div className="space-y-3 max-h-60 overflow-auto p-2">
+                      <p className="text-xs font-bold text-zinc-500 uppercase">Items in this Bill:</p>
+                      {foundBillSales.map((item, i) => (
+                        <div key={i} className={cn("flex items-center justify-between p-3 rounded-xl border", isDark ? "bg-zinc-800 border-zinc-700" : "bg-zinc-50 border-zinc-200")}>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold truncate">{item.description}</p>
+                            <p className="text-xs text-zinc-500">Qty: {item.qty} | Price: {item.selling_price}</p>
+                          </div>
+                          <button 
+                            onClick={() => handleReturn(billNumberInput, item.product_code)}
+                            className="px-3 py-1 rounded-lg text-xs font-bold text-white bg-red-500 hover:bg-red-600"
+                          >
+                            Return
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <button 
                     onClick={() => handleReturn(billNumberInput)}
-                    className={cn("w-full py-4 rounded-2xl text-white font-bold transition-all", getThemeColor("bg"))}
+                    disabled={foundBillSales.length === 0}
+                    className={cn(
+                      "w-full py-4 rounded-2xl text-white font-bold transition-all", 
+                      foundBillSales.length > 0 ? "bg-red-500 hover:bg-red-600" : "bg-zinc-500 cursor-not-allowed"
+                    )}
                   >
-                    Process Return
+                    Return All Items
                   </button>
                 </div>
               </motion.div>
