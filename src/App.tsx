@@ -266,6 +266,8 @@ const getChangeBreakdown = (change: number) => {
   return breakdown;
 };
 
+const PAYMENT_TYPES = ["Cash", "Card", "MFS", "Points", "Coupon"];
+
 const PaymentModal = ({ 
   total, 
   onClose, 
@@ -282,8 +284,41 @@ const PaymentModal = ({
   const [currentPayments, setCurrentPayments] = useState<{ type: string; amount: number }[]>([]);
   const [selectedType, setSelectedType] = useState("Cash");
   const [amount, setAmount] = useState("");
+  const amountInputRef = useRef<HTMLInputElement>(null);
 
-  const paymentTypes = ["Cash", "Card", "MFS", "Points", "Coupon"];
+  useEffect(() => {
+    amountInputRef.current?.focus();
+    
+    const handleModalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "F5") {
+        e.preventDefault();
+        const currentIndex = PAYMENT_TYPES.indexOf(selectedType);
+        const nextIndex = (currentIndex + 1) % PAYMENT_TYPES.length;
+        setSelectedType(PAYMENT_TYPES[nextIndex]);
+      }
+
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        const currentIndex = PAYMENT_TYPES.indexOf(selectedType);
+        const nextIndex = (currentIndex - 1 + PAYMENT_TYPES.length) % PAYMENT_TYPES.length;
+        setSelectedType(PAYMENT_TYPES[nextIndex]);
+      }
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        const currentIndex = PAYMENT_TYPES.indexOf(selectedType);
+        const nextIndex = (currentIndex + 1) % PAYMENT_TYPES.length;
+        setSelectedType(PAYMENT_TYPES[nextIndex]);
+      }
+
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleModalKeyDown);
+    return () => window.removeEventListener("keydown", handleModalKeyDown);
+  }, [selectedType, onClose]);
 
   const isRefund = total < 0;
   const absTotal = Math.abs(total);
@@ -293,7 +328,9 @@ const PaymentModal = ({
   const addPayment = () => {
     const val = parseFloat(amount);
     if (isNaN(val) || val <= 0) return;
-    if (val > remaining) {
+    
+    // Allow overpayment ONLY for Cash
+    if (selectedType !== "Cash" && val > remaining) {
       setCurrentPayments([...currentPayments, { type: selectedType, amount: remaining }]);
     } else {
       setCurrentPayments([...currentPayments, { type: selectedType, amount: val }]);
@@ -331,7 +368,7 @@ const PaymentModal = ({
               <div className="space-y-2">
                 <label className="text-sm text-zinc-500">{isRefund ? "Select Refund Method" : "Select Payment Type"}</label>
                 <div className="grid grid-cols-3 gap-2">
-                  {paymentTypes.map(t => (
+                  {PAYMENT_TYPES.map(t => (
                     <button
                       key={t}
                       onClick={() => setSelectedType(t)}
@@ -352,11 +389,20 @@ const PaymentModal = ({
                 <label className="text-sm text-zinc-500">{isRefund ? "Amount to Refund" : "Amount to Pay"}</label>
                 <div className="flex gap-2">
                   <input
+                    ref={amountInputRef}
                     type="number"
                     value={amount}
                     onChange={e => setAmount(e.target.value)}
                     placeholder={remaining.toFixed(2)}
-                    onKeyDown={(e) => e.key === 'Enter' && addPayment()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        if (amount) {
+                          addPayment();
+                        } else if (paidTotal >= absTotal - 0.01) {
+                          onSave(currentPayments);
+                        }
+                      }
+                    }}
                     className={cn(
                       "flex-1 px-4 py-2 rounded-lg border focus:outline-none",
                       isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-zinc-50 border-zinc-200 text-zinc-900"
@@ -983,7 +1029,13 @@ export default function App() {
 
     const paidTotal = paymentList.reduce((sum, p) => sum + p.amount, 0);
     setReceivedAmount(paidTotal);
-    setChangeAmount(paidTotal - finalTotal);
+    
+    if (finalTotal < 0) {
+      // For refunds, change is 0 (we just pay back the abs total)
+      setChangeAmount(0);
+    } else {
+      setChangeAmount(paidTotal - finalTotal);
+    }
 
     const billNumber = format(new Date(), "yyyyMMddHHmmss");
     setCurrentTransactionId(billNumber);
@@ -1529,7 +1581,7 @@ export default function App() {
       }
 
       // F2: Focus product search or change qty
-      if (e.key === "F2") {
+      if (e.key === "F2" && !showPaymentModal && !showSuccessModal && !showErrorModal) {
         e.preventDefault();
         const now = Date.now();
         if (now - lastF2PressTime < 500 && selectedCartIndex >= 0) {
@@ -1550,7 +1602,7 @@ export default function App() {
       }
 
       // F4: Remove item
-      if (e.key === "F4") {
+      if (e.key === "F4" && !showPaymentModal && !showSuccessModal && !showErrorModal) {
         e.preventDefault();
         if (selectedCartIndex >= 0) {
           removeFromCart(selectedCartIndex);
