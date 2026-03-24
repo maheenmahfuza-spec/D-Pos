@@ -69,6 +69,13 @@ db.exec(`
     role TEXT PRIMARY KEY,
     password TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT,
+    details TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // Migration: Add columns to sales if they don't exist
@@ -82,8 +89,21 @@ try {
   db.exec("ALTER TABLE sales ADD COLUMN transaction_id TEXT");
 } catch (e) {}
 try {
+  db.exec("ALTER TABLE sales ADD COLUMN original_transaction_id TEXT");
+} catch (e) {}
+try {
   db.exec("ALTER TABLE members ADD COLUMN id INTEGER");
   db.exec("ALTER TABLE members ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP");
+} catch (e) {}
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT,
+      details TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 } catch (e) {}
 
 // Seed initial data
@@ -93,6 +113,15 @@ seedSettings.run("shop_name", "SportsStock Pro");
 const seedUsers = db.prepare("INSERT OR IGNORE INTO users (role, password) VALUES (?, ?)");
 seedUsers.run("admin", "admin123");
 seedUsers.run("cashier", "cashier123");
+
+// Helper to log events
+const logEvent = (type: string, details: string) => {
+  try {
+    db.prepare("INSERT INTO audit_logs (event_type, details) VALUES (?, ?)").run(type, details);
+  } catch (err) {
+    console.error("Failed to log event:", err);
+  }
+};
 
 async function startServer() {
   const app = express();
@@ -111,14 +140,38 @@ async function startServer() {
   };
 
   // API Routes
+  app.get("/api/logs", (req, res) => {
+    try {
+      // Fetch logs from the last 12 hours
+      const logs = db.prepare(`
+        SELECT * FROM audit_logs 
+        WHERE created_at >= datetime('now', '-12 hours') 
+        ORDER BY created_at DESC
+      `).all();
+      res.json(logs);
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.post("/api/logs", (req, res) => {
+    const { event_type, details } = req.body;
+    logEvent(event_type, details);
+    res.json({ success: true });
+  });
+
   app.post("/api/login", (req, res) => {
     const { role, password } = req.body;
     if (role === "dev") {
-      if (password === "202050") return res.json({ success: true, role: "dev" });
+      if (password === "202050") {
+        logEvent("LOGIN", `Dev logged in`);
+        return res.json({ success: true, role: "dev" });
+      }
       return res.status(401).json({ success: false, message: "Invalid dev password" });
     }
     const user = db.prepare("SELECT * FROM users WHERE role = ? AND password = ?").get(role, password);
     if (user) {
+      logEvent("LOGIN", `${role} logged in`);
       res.json({ success: true, role });
     } else {
       res.status(401).json({ success: false, message: "Invalid credentials" });
@@ -144,6 +197,7 @@ async function startServer() {
           qty=products.qty + excluded.qty
       `).run(code, description, category, cost_price, selling_price, qty);
       
+      logEvent("PRODUCT_UPDATE", `Added/Updated product: ${code} (${description}), Qty: ${qty}`);
       broadcast({ type: "STOCK_UPDATED" });
       res.json({ success: true });
     } catch (error: any) {
@@ -180,6 +234,7 @@ async function startServer() {
 
     try {
       transaction(products);
+      logEvent("BULK_IMPORT", `Imported ${products.length} products via Excel`);
       broadcast({ type: "STOCK_UPDATED" });
       res.json({ success: true });
     } catch (error: any) {
@@ -222,15 +277,20 @@ async function startServer() {
   });
 
   app.post("/api/sales", (req, res) => {
-    const { items, member_phone, discount, points_redeemed, payments } = req.body;
+    const { transaction_id: client_txn_id, items, member_phone, discount, points_redeemed, payments } = req.body;
     const date = new Date().toISOString().split("T")[0];
-    const transaction_id = `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+    const transaction_id = client_txn_id || `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
 
     const transaction = db.transaction(() => {
       let totalTaka = 0;
       for (const item of items) {
         const product = db.prepare("SELECT * FROM products WHERE code = ?").get(item.code) as any;
-        if (!product || product.qty < item.qty) throw new Error(`Insufficient stock for ${item.code}`);
+        if (!product) throw new Error(`Product not found: ${item.code}`);
+        
+        // Only check stock for positive quantities (sales)
+        if (item.qty > 0 && product.qty < item.qty) {
+          throw new Error(`Insufficient stock for ${item.code}`);
+        }
 
         const itemTotal = item.qty * item.price;
         totalTaka += itemTotal;
@@ -238,13 +298,14 @@ async function startServer() {
         db.prepare("UPDATE products SET qty = qty - ? WHERE code = ?").run(item.qty, item.code);
       }
 
-      const finalAmount = totalTaka - discount;
+      const finalAmount = totalTaka - (discount || 0);
+      // Points earned can be negative for returns
       const pointsEarned = member_phone ? Math.floor(finalAmount / 100) : 0;
 
       // Record sales
       for (const item of items) {
-        db.prepare("INSERT INTO sales (transaction_id, date, product_code, qty, total_price, discount, member_phone, points_earned, points_redeemed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-          .run(transaction_id, date, item.code, item.qty, item.qty * item.price, discount / items.length, member_phone, pointsEarned / items.length, points_redeemed / items.length);
+        db.prepare("INSERT INTO sales (transaction_id, original_transaction_id, date, product_code, qty, total_price, discount, member_phone, points_earned, points_redeemed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+          .run(transaction_id, item.original_transaction_id || null, date, item.code, item.qty, item.qty * item.price, (discount || 0) / items.length, member_phone, pointsEarned / items.length, (points_redeemed || 0) / items.length);
       }
 
       // Record payments
@@ -262,7 +323,8 @@ async function startServer() {
         if (points_redeemed > 0) {
           if (points_redeemed < 2) throw new Error("Minimum redemption is 2 points");
           if (points_redeemed > member.points) throw new Error("Insufficient points");
-          if (points_redeemed > totalTaka) throw new Error("Redemption cannot exceed bill total");
+          if (totalTaka > 0 && points_redeemed > totalTaka) throw new Error("Redemption cannot exceed bill total");
+          if (totalTaka <= 0) throw new Error("Cannot redeem points on a refund");
 
           db.prepare("INSERT INTO points_history (member_phone, change, reason) VALUES (?, ?, ?)")
             .run(member_phone, -points_redeemed, "Redeemed for discount");
@@ -282,6 +344,15 @@ async function startServer() {
       transaction();
       broadcast({ type: "STOCK_UPDATED" });
       res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.get("/api/sales/:transactionId/payments", (req, res) => {
+    try {
+      const payments = db.prepare("SELECT * FROM sales_payments WHERE transaction_id = ?").all(req.params.transactionId);
+      res.json(payments);
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }

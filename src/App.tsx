@@ -88,6 +88,9 @@ interface Sale {
 
 interface CartItem extends Product {
   cartQty: number;
+  isReturn?: boolean;
+  originalQty?: number;
+  original_transaction_id?: string;
 }
 
 // --- Components ---
@@ -235,13 +238,19 @@ const PaymentModal = ({
 
   const paymentTypes = ["Cash", "Card", "MFS", "Points", "Coupon"];
 
+  const isRefund = total < 0;
+  const absTotal = Math.abs(total);
   const paidTotal = currentPayments.reduce((sum, p) => sum + p.amount, 0);
-  const remaining = Math.max(0, total - paidTotal);
+  const remaining = Math.max(0, absTotal - paidTotal);
 
   const addPayment = () => {
     const val = parseFloat(amount);
     if (isNaN(val) || val <= 0) return;
-    setCurrentPayments([...currentPayments, { type: selectedType, amount: val }]);
+    if (val > remaining) {
+      setCurrentPayments([...currentPayments, { type: selectedType, amount: remaining }]);
+    } else {
+      setCurrentPayments([...currentPayments, { type: selectedType, amount: val }]);
+    }
     setAmount("");
   };
 
@@ -269,11 +278,11 @@ const PaymentModal = ({
         <div className="p-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="space-y-4">
-              <div className="text-sm text-zinc-500 uppercase tracking-wider">Total Amount Due</div>
-              <div className="text-4xl font-black">{total.toFixed(2)} ৳</div>
+              <div className="text-sm text-zinc-500 uppercase tracking-wider">{isRefund ? "Total Refund Amount" : "Total Amount Due"}</div>
+              <div className={cn("text-4xl font-black", isRefund ? "text-red-500" : "")}>{absTotal.toFixed(2)} ৳</div>
               
               <div className="space-y-2">
-                <label className="text-sm text-zinc-500">Select Payment Type</label>
+                <label className="text-sm text-zinc-500">{isRefund ? "Select Refund Method" : "Select Payment Type"}</label>
                 <div className="grid grid-cols-3 gap-2">
                   {paymentTypes.map(t => (
                     <button
@@ -293,7 +302,7 @@ const PaymentModal = ({
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm text-zinc-500">Amount to Pay</label>
+                <label className="text-sm text-zinc-500">{isRefund ? "Amount to Refund" : "Amount to Pay"}</label>
                 <div className="flex gap-2">
                   <input
                     type="number"
@@ -317,14 +326,14 @@ const PaymentModal = ({
             </div>
 
             <div className="space-y-4">
-              <div className="text-sm text-zinc-500 uppercase tracking-wider">Payments Added</div>
+              <div className="text-sm text-zinc-500 uppercase tracking-wider">{isRefund ? "Refunds Added" : "Payments Added"}</div>
               <div className={cn(
                 "h-48 overflow-auto rounded-xl border p-4 space-y-2",
                 isDark ? "bg-zinc-950 border-zinc-800" : "bg-zinc-50 border-zinc-100"
               )}>
                 {currentPayments.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-zinc-500 text-xs italic">
-                    No payments added yet
+                    No {isRefund ? "refunds" : "payments"} added yet
                   </div>
                 ) : (
                   currentPayments.map((p, i) => (
@@ -341,7 +350,7 @@ const PaymentModal = ({
                 )}
               </div>
               <div className="pt-2 border-t border-zinc-800 flex justify-between items-center">
-                <span className="text-sm text-zinc-500">Total Paid:</span>
+                <span className="text-sm text-zinc-500">{isRefund ? "Total Refunded:" : "Total Paid:"}</span>
                 <span className="text-xl font-bold">{paidTotal.toFixed(2)} ৳</span>
               </div>
               <div className="flex justify-between items-center">
@@ -363,13 +372,13 @@ const PaymentModal = ({
           </button>
           <button
             onClick={() => onSave(currentPayments)}
-            disabled={paidTotal < total - 0.01}
+            disabled={paidTotal < absTotal - 0.01}
             className={cn(
               "flex-1 py-3 rounded-xl text-white font-bold disabled:opacity-50",
               getThemeColor("bg")
             )}
           >
-            Save & Complete
+            {isRefund ? "Complete Refund" : "Save & Complete"}
           </button>
         </div>
       </motion.div>
@@ -488,7 +497,9 @@ const Bill = ({
   billRef,
   pointsRedeemed,
   pointsEarned,
-  transactionId
+  transactionId,
+  receivedAmount,
+  changeAmount
 }: { 
   items: CartItem[], 
   member: Member | null, 
@@ -500,7 +511,9 @@ const Bill = ({
   billRef: React.RefObject<HTMLDivElement | null>,
   pointsRedeemed: number,
   pointsEarned: number,
-  transactionId: string
+  transactionId: string,
+  receivedAmount: number,
+  changeAmount: number
 }) => {
   return (
     <div className="absolute -left-[9999px] top-0">
@@ -517,6 +530,7 @@ const Bill = ({
           />
           <h2 className="text-2xl font-bold uppercase">{shopName}</h2>
           <div className="text-sm font-bold mt-1">Bill #: {transactionId}</div>
+          <div className="text-sm font-bold">Txn #: {transactionId}</div>
           <p className="text-sm">{format(new Date(), "PPP p")}</p>
         </div>
 
@@ -536,8 +550,20 @@ const Bill = ({
         </div>
 
         <div className="border-t border-black pt-2 space-y-1">
+          {items.some(i => i.isReturn) && (
+            <>
+              <div className="flex justify-between text-sm text-red-600">
+                <span>Return Amount:</span>
+                <span>{Math.abs(items.filter(i => i.isReturn).reduce((sum, i) => sum + (i.selling_price * i.cartQty), 0)).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-sm text-emerald-600">
+                <span>New Items Amount:</span>
+                <span>{items.filter(i => !i.isReturn).reduce((sum, i) => sum + (i.selling_price * i.cartQty), 0).toFixed(2)}</span>
+              </div>
+            </>
+          )}
           <div className="flex justify-between">
-            <span>Subtotal:</span>
+            <span>Net Subtotal:</span>
             <span>{((total || 0) + (discount || 0)).toFixed(2)}</span>
           </div>
           <div className="flex justify-between text-red-600">
@@ -547,6 +573,14 @@ const Bill = ({
           <div className="flex justify-between font-bold text-lg border-t-2 border-black pt-1">
             <span>TOTAL:</span>
             <span>{(total || 0).toFixed(2)} Taka</span>
+          </div>
+          <div className="flex justify-between text-sm pt-2">
+            <span>Received:</span>
+            <span>{(receivedAmount || 0).toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between text-sm font-bold">
+            <span>Change:</span>
+            <span>{(changeAmount || 0).toFixed(2)}</span>
           </div>
         </div>
 
@@ -577,8 +611,15 @@ const Bill = ({
         )}
 
         <div className="mt-8 text-center text-xs space-y-4">
-          <div>
-            <p>Thank you for shopping with us!</p>
+          <div className="border-t border-dashed border-black pt-4 text-left">
+            <p className="font-bold mb-1">POLICY:</p>
+            <p>• No Cash Refund</p>
+            <p>• No Return After Purchase</p>
+            <p>• Exchange Allowed Within 72 Hours</p>
+            <p className="ml-2 text-[10px] italic">(Must bring receipt & product in good condition)</p>
+          </div>
+          <div className="pt-2">
+            <p className="font-bold text-sm">Thank you for shopping with us!</p>
             <p>Visit again soon.</p>
           </div>
           {billQrData && (
@@ -595,7 +636,7 @@ const Bill = ({
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [role, setRole] = useState<Role>(null);
-  const [activeTab, setActiveTab] = useState("pos");
+  const [activeTab, setActiveTab] = useState<"pos" | "inventory" | "members" | "reports" | "about" | "dev" | "add-product" | "history">("pos");
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [member, setMember] = useState<Member | null>(null);
@@ -644,6 +685,8 @@ export default function App() {
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [billNumberInput, setBillNumberInput] = useState("");
   const [foundBillSales, setFoundBillSales] = useState<Sale[]>([]);
+  const [returnQuantities, setReturnQuantities] = useState<{[key: string]: number}>({});
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [heldBill, setHeldBill] = useState<{
     cart: CartItem[];
     member: Member | null;
@@ -664,6 +707,7 @@ export default function App() {
   useEffect(() => {
     if (role) {
       fetchProducts();
+      fetchAuditLogs();
       if (role === "admin" || role === "dev") {
         fetchSales();
         fetchAllMembers();
@@ -701,10 +745,43 @@ export default function App() {
     if (billNumberInput.length >= 6) {
       const found = sales.filter(s => s.transaction_id === billNumberInput);
       setFoundBillSales(found);
+      if (found.length > 0) {
+        const qtys: {[key: string]: number} = {};
+        found.forEach(s => {
+          qtys[s.product_code] = s.qty;
+        });
+        setReturnQuantities(qtys);
+      } else {
+        setReturnQuantities({});
+      }
     } else {
       setFoundBillSales([]);
+      setReturnQuantities({});
     }
   }, [billNumberInput, sales]);
+
+  const fetchAuditLogs = async () => {
+    try {
+      const res = await fetch("/api/logs");
+      const data = await res.json();
+      setAuditLogs(data);
+    } catch (err) {
+      console.error("Failed to fetch logs:", err);
+    }
+  };
+
+  const logEvent = async (type: string, details: string) => {
+    try {
+      await fetch("/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_type: type, details }),
+      });
+      fetchAuditLogs();
+    } catch (err) {
+      console.error("Failed to log event:", err);
+    }
+  };
 
   const fetchProducts = async () => {
     const res = await fetch("/api/products");
@@ -749,22 +826,26 @@ export default function App() {
   // --- POS Logic ---
   const addToCart = (product: Product) => {
     setCart(prev => {
-      const existing = prev.find(p => p.code === product.code);
+      const existing = prev.find(p => p.code === product.code && !p.isReturn);
       if (existing) {
         if (existing.cartQty >= product.qty) return prev;
-        const updated = prev.map(p => p.code === product.code ? { ...p, cartQty: p.cartQty + 1 } : p);
-        setSelectedCartIndex(updated.findIndex(p => p.code === product.code));
+        const updated = prev.map(p => (p.code === product.code && !p.isReturn) ? { ...p, cartQty: p.cartQty + 1 } : p);
+        setSelectedCartIndex(updated.findIndex(p => p.code === product.code && !p.isReturn));
         return updated;
       }
-      const updated = [...prev, { ...product, cartQty: 1 }];
+      const updated = [...prev, { ...product, cartQty: 1, isReturn: false }];
       setSelectedCartIndex(updated.length - 1);
       return updated;
     });
   };
 
-  const removeFromCart = (code: string) => {
+  const removeFromCart = (index: number) => {
+    const item = cart[index];
+    if (item) {
+      logEvent("CART_REMOVE", `Removed ${item.description} (${item.code}) ${item.isReturn ? '(Return)' : ''} from cart`);
+    }
     setCart(prev => {
-      const updated = prev.filter(p => p.code !== code);
+      const updated = prev.filter((_, i) => i !== index);
       if (updated.length === 0) setSelectedCartIndex(-1);
       else setSelectedCartIndex(prev => Math.min(prev, updated.length - 1));
       return updated;
@@ -785,6 +866,8 @@ export default function App() {
     pointsEarned: number;
     date: string;
     transaction_id: string;
+    receivedAmount: number;
+    changeAmount: number;
   } | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const previewBillRef = useRef<HTMLDivElement>(null);
@@ -808,12 +891,14 @@ export default function App() {
     setShowMemberResults(true);
   };
 
-  const pointsEarned = member ? Math.floor(finalTotal / 100) : 0;
+  const pointsEarned = member ? Math.max(0, Math.floor(finalTotal / 100)) : 0;
 
   const handleCheckout = async (paymentList: { type: string; amount: number }[]) => {
-    // Validation: Discount must be greater than cost price + 6%
+    // Validation: Discount must be greater than cost price + 6% (only for normal sales)
     const totalCost = cart.reduce((sum, item) => sum + (item.cost_price * item.cartQty), 0);
-    if (finalTotal < totalCost * 1.06) {
+    const hasReturn = cart.some(item => item.isReturn);
+    
+    if (!hasReturn && finalTotal < totalCost * 1.06) {
       showNotification("Discount too high! Final price must be at least 6% above cost price.", "error");
       return;
     }
@@ -836,7 +921,12 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           transaction_id: billNumber,
-          items: cart.map(item => ({ code: item.code, qty: item.cartQty, price: item.selling_price })),
+          items: cart.map(item => ({ 
+            code: item.code, 
+            qty: item.cartQty, 
+            price: item.selling_price,
+            original_transaction_id: item.original_transaction_id
+          })),
           member_phone: member?.phone,
           discount: totalDiscount,
           points_redeemed: redeemPoints,
@@ -845,6 +935,13 @@ export default function App() {
       });
 
       if (res.ok) {
+        const isReturn = cart.some(i => i.isReturn);
+        const isExchange = isReturn && cart.some(i => !i.isReturn);
+        const eventType = isExchange ? "EXCHANGE" : (isReturn ? "RETURN" : "SALE");
+        const originalTxn = cart.find(i => i.isReturn)?.original_transaction_id;
+        
+        logEvent(eventType, `Completed ${eventType} ${billNumber}${originalTxn ? ` (Original: ${originalTxn})` : ""}. Total: ${finalTotal.toFixed(2)} ৳`);
+        
         setShowPaymentModal(false);
         setShowSuccessModal(true);
         // Generate Bill Image
@@ -855,18 +952,20 @@ export default function App() {
             link.download = `bill-${billNumber}.png`;
             link.href = dataUrl;
             link.click();
+            
+            // Clear cart and states AFTER generation
+            setCart([]);
+            setMember(null);
+            setCustomDiscount(0);
+            setRedeemPoints(0);
+            setMemberSearch("");
+            setPayments([]);
+            fetchProducts();
+            if (role === "admin" || role === "dev") {
+              fetchAllMembers();
+            }
           }
-        }, 500);
-        setCart([]);
-        setMember(null);
-        setCustomDiscount(0);
-        setRedeemPoints(0);
-        setMemberSearch("");
-        setPayments([]);
-        fetchProducts();
-        if (role === "admin" || role === "dev") {
-          fetchAllMembers();
-        }
+        }, 1000);
       } else {
         const err = await res.json();
         setCheckoutError(err.message || "Unknown error occurred");
@@ -916,7 +1015,7 @@ export default function App() {
     showNotification("Bill recalled", "success");
   };
 
-  const handleExchange = (billId: string, productCode?: string) => {
+  const handleExchange = (billId: string, productCode?: string, returnQty?: number) => {
     const billSales = sales.filter(s => s.transaction_id === billId);
     if (billSales.length === 0) {
       showNotification("Bill not found", "error");
@@ -933,43 +1032,32 @@ export default function App() {
       ? billSales.filter(s => s.product_code === productCode)
       : billSales;
 
-    // Put items back to stock
-    setProducts(prev => prev.map(p => {
-      const saleItem = itemsToExchange.find(s => s.product_code === p.code);
-      if (saleItem) {
-        return { ...p, qty: p.qty + saleItem.qty };
-      }
-      return p;
-    }));
-
-    // Remove sales from records
-    if (productCode) {
-      setSales(prev => prev.filter(s => !(s.transaction_id === billId && s.product_code === productCode)));
-    } else {
-      setSales(prev => prev.filter(s => s.transaction_id !== billId));
-    }
-
-    // Add items to cart for exchange
+    // Add items to cart for exchange with negative quantity
     const exchangeItems: CartItem[] = itemsToExchange.map(s => {
       const product = products.find(p => p.code === s.product_code);
+      const qtyToReturn = productCode && returnQty ? returnQty : s.qty;
       return {
         code: s.product_code,
         description: s.description,
         category: product?.category || "",
         cost_price: product?.cost_price || 0,
         selling_price: s.selling_price,
-        qty: (product?.qty || 0) + s.qty,
-        cartQty: s.qty
+        qty: product?.qty || 0,
+        cartQty: -qtyToReturn,
+        isReturn: true,
+        originalQty: s.qty,
+        original_transaction_id: billId
       };
     });
 
     setCart(prev => [...prev, ...exchangeItems]);
     setShowExchangeModal(false);
     setBillNumberInput("");
-    showNotification("Items added to cart for exchange. Stock updated.", "success");
+    logEvent("EXCHANGE_START", `Started exchange for items from bill ${billId}${productCode ? ` (Product: ${productCode})` : ""}`);
+    showNotification("Items added to cart as returns. Add new items to complete exchange.", "info");
   };
 
-  const handleReturn = (billId: string, productCode?: string) => {
+  const handleReturn = (billId: string, productCode?: string, returnQty?: number) => {
     const billSales = sales.filter(s => s.transaction_id === billId);
     if (billSales.length === 0) {
       showNotification("Bill not found", "error");
@@ -986,27 +1074,29 @@ export default function App() {
       ? billSales.filter(s => s.product_code === productCode)
       : billSales;
 
-    // Put items back to stock
-    setProducts(prev => prev.map(p => {
-      const saleItem = itemsToReturn.find(s => s.product_code === p.code);
-      if (saleItem) {
-        return { ...p, qty: p.qty + saleItem.qty };
-      }
-      return p;
-    }));
+    // Add items to cart for return with negative quantity
+    const returnItems: CartItem[] = itemsToReturn.map(s => {
+      const product = products.find(p => p.code === s.product_code);
+      const qtyToReturn = productCode && returnQty ? returnQty : s.qty;
+      return {
+        code: s.product_code,
+        description: s.description,
+        category: product?.category || "",
+        cost_price: product?.cost_price || 0,
+        selling_price: s.selling_price,
+        qty: product?.qty || 0,
+        cartQty: -qtyToReturn,
+        isReturn: true,
+        originalQty: s.qty,
+        original_transaction_id: billId
+      };
+    });
 
-    // Remove sales from records
-    if (productCode) {
-      setSales(prev => prev.filter(s => !(s.transaction_id === billId && s.product_code === productCode)));
-    } else {
-      setSales(prev => prev.filter(s => s.transaction_id !== billId));
-    }
-    
-    if (!productCode || billSales.length === 1) {
-      setShowReturnModal(false);
-      setBillNumberInput("");
-    }
-    showNotification("Items returned to stock. Sale record removed.", "success");
+    setCart(prev => [...prev, ...returnItems]);
+    setShowReturnModal(false);
+    setBillNumberInput("");
+    logEvent("RETURN_START", `Started return for items from bill ${billId}${productCode ? ` (Product: ${productCode})` : ""}`);
+    showNotification("Items added to cart as returns.", "info");
   };
 
   const openBillPreview = (transactionId: string) => {
@@ -1034,9 +1124,24 @@ export default function App() {
       pointsRedeemed: transactionSales.reduce((sum, s) => sum + (s.points_redeemed || 0), 0),
       pointsEarned: transactionSales.reduce((sum, s) => sum + (s.points_earned || 0), 0),
       date: firstSale.date,
-      transaction_id: transactionId
+      transaction_id: transactionId,
+      receivedAmount: 0,
+      changeAmount: 0
     });
     setShowPreviewModal(true);
+
+    // Fetch payment info
+    fetch(`/api/sales/${transactionId}/payments`)
+      .then(res => res.json())
+      .then(payments => {
+        const paidTotal = Array.isArray(payments) ? payments.reduce((sum: number, p: any) => sum + p.amount, 0) : 0;
+        const billTotal = transactionSales.reduce((sum, s) => sum + (s.total_price || 0), 0) - transactionSales.reduce((sum, s) => sum + (s.discount || 0), 0);
+        setPreviewBillData(prev => prev ? {
+          ...prev,
+          receivedAmount: paidTotal,
+          changeAmount: paidTotal - billTotal
+        } : null);
+      });
   };
 
   const handleShare = async (platform: 'whatsapp' | 'messenger') => {
@@ -1153,50 +1258,69 @@ export default function App() {
 
     const reader = new FileReader();
     reader.onload = async (evt) => {
-      const bstr = evt.target?.result;
-      const wb = XLSX.read(bstr, { type: "binary" });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws) as any[];
-      
-      const productsToUpload = data.map(row => {
-        // Find keys case-insensitively and handle spaces/underscores
-        const findKey = (patterns: string[]) => {
-          const key = Object.keys(row).find(k => 
-            patterns.some(p => k.toLowerCase().replace(/[^a-z0-9]/g, '') === p.toLowerCase().replace(/[^a-z0-9]/g, ''))
-          );
-          return key ? row[key] : undefined;
-        };
+      try {
+        const dataBuffer = evt.target?.result;
+        const wb = XLSX.read(dataBuffer, { type: "array" });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws) as any[];
+        
+        console.log("Raw Excel Data:", data);
 
-        const code = String(findKey(["code", "productcode", "itemcode"]) || "");
-        const description = String(findKey(["description", "name", "itemname"]) || "");
-        const category = String(findKey(["category", "type"]) || "General");
-        const cost_price = Number(findKey(["costprice", "cost", "cp"]) || 0);
-        const selling_price = Number(findKey(["sellingprice", "price", "sp"]) || 0);
-        const qty = Number(findKey(["qty", "quantity", "stock"]) || 0);
+        const productsToUpload = data.map(row => {
+          // Find keys case-insensitively and handle spaces/underscores
+          const findKey = (patterns: string[]) => {
+            const key = Object.keys(row).find(k => 
+              patterns.some(p => k.toLowerCase().replace(/[^a-z0-9]/g, '') === p.toLowerCase().replace(/[^a-z0-9]/g, ''))
+            );
+            return key ? row[key] : undefined;
+          };
 
-        return { code, description, category, cost_price, selling_price, qty };
-      }).filter(p => p.code); // Only include rows with a code
+          const code = String(findKey(["code", "productcode", "itemcode", "barcode", "id"]) || "").trim();
+          const description = String(findKey(["description", "name", "itemname", "productname", "title", "label"]) || "").trim();
+          const category = String(findKey(["category", "type", "dept", "department", "group"]) || "General").trim();
+          
+          const rawCost = findKey(["costprice", "cost", "cp", "purchaseprice", "buyingprice"]);
+          const cost_price = parseFloat(String(rawCost || "0")) || 0;
+          
+          const rawPrice = findKey(["sellingprice", "price", "sp", "mrp", "rate", "selling"]);
+          const selling_price = parseFloat(String(rawPrice || "0")) || 0;
+          
+          const rawQty = findKey(["qty", "quantity", "stock", "count", "inventory", "balance"]);
+          const qty = parseInt(String(rawQty || "0"), 10) || 0;
 
-      if (productsToUpload.length === 0) {
-        showNotification("No valid products found in Excel file. Please ensure columns are named correctly (e.g., Code, Description, Category, Cost Price, Qty).", "error");
-        return;
-      }
+          return { code, description, category, cost_price, selling_price, qty };
+        }).filter(p => p.code && p.code !== "undefined" && p.code !== "null" && p.code !== "");
 
-      const res = await fetch("/api/products/bulk", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(productsToUpload),
-      });
+        console.log("Parsed Products:", productsToUpload);
 
-      if (res.ok) {
-        showNotification(`Bulk upload of ${productsToUpload.length} products successful!`);
-      } else {
-        const err = await res.json();
-        showNotification(`Upload failed: ${err.message}`, "error");
+        if (productsToUpload.length === 0) {
+          showNotification("No valid products found. Please ensure your Excel has a 'Code' column.", "error");
+          return;
+        }
+
+        const res = await fetch("/api/products/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(productsToUpload),
+        });
+
+        if (res.ok) {
+          showNotification(`Successfully imported ${productsToUpload.length} products!`);
+          fetchProducts();
+          logEvent("BULK_IMPORT", `Imported ${productsToUpload.length} products via Excel`);
+          // Reset file input
+          e.target.value = "";
+        } else {
+          const err = await res.json();
+          showNotification(`Upload failed: ${err.message}`, "error");
+        }
+      } catch (err) {
+        console.error("Excel parse error:", err);
+        showNotification("Failed to parse Excel file. Please ensure it's a valid .xlsx or .xls file.", "error");
       }
     };
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const updatePassword = async (role: "admin" | "cashier") => {
@@ -1356,8 +1480,7 @@ export default function App() {
       if (e.key === "F4") {
         e.preventDefault();
         if (selectedCartIndex >= 0) {
-          removeFromCart(cart[selectedCartIndex].code);
-          setSelectedCartIndex(prev => Math.min(prev, cart.length - 2));
+          removeFromCart(selectedCartIndex);
         }
       }
 
@@ -1409,6 +1532,8 @@ export default function App() {
         pointsRedeemed={redeemPoints}
         pointsEarned={pointsEarned}
         transactionId={currentTransactionId}
+        receivedAmount={receivedAmount}
+        changeAmount={changeAmount}
       />
       <AnimatePresence>
         {notification && (
@@ -1538,6 +1663,18 @@ export default function App() {
                     </button>
                   </>
                 )}
+
+                <button 
+                  onClick={() => { setActiveTab("history"); setIsMobileMenuOpen(false); }}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-3 rounded-xl transition-all w-full", 
+                    activeTab === "history" 
+                      ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text")) 
+                      : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
+                  )}
+                >
+                  <RotateCcw size={20} /> History
+                </button>
 
                 <button 
                   onClick={() => { setActiveTab("about"); setIsMobileMenuOpen(false); }}
@@ -1703,6 +1840,21 @@ export default function App() {
         )}
 
         <button 
+          onClick={() => setActiveTab("history")}
+          className={cn(
+            "flex items-center gap-3 px-4 py-3 rounded-xl transition-all overflow-hidden", 
+            activeTab === "history" 
+              ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text")) 
+              : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100"),
+            !isSidebarOpen && "justify-center px-0"
+          )}
+          title={!isSidebarOpen ? "History" : ""}
+        >
+          <RotateCcw size={20} className="shrink-0" />
+          {isSidebarOpen && <span className="truncate">History</span>}
+        </button>
+
+        <button 
           onClick={() => setActiveTab("about")}
           className={cn(
             "flex items-center gap-3 px-4 py-3 rounded-xl transition-all overflow-hidden", 
@@ -1851,39 +2003,75 @@ export default function App() {
                         ) : (
                           cart.map((item, index) => (
                             <tr 
-                              key={item.code} 
+                              key={`${item.code}-${item.isReturn ? 'return' : 'sale'}`} 
                               onClick={() => setSelectedCartIndex(index)}
                               className={cn(
                                 "transition-colors cursor-pointer", 
                                 isDark ? "hover:bg-zinc-800/30" : "hover:bg-zinc-50",
-                                selectedCartIndex === index && (isDark ? "bg-zinc-800/50" : "bg-zinc-100")
+                                selectedCartIndex === index && (isDark ? "bg-zinc-800/50" : "bg-zinc-100"),
+                                item.isReturn && (isDark ? "bg-red-500/5" : "bg-red-50")
                               )}
                             >
                               <td className="px-6 py-4">
-                                <div className="font-bold">{item.description}</div>
-                                <div className="text-xs text-zinc-500">{item.code}</div>
+                                <div className="flex items-center gap-2">
+                                  {item.isReturn && (
+                                    <span className="px-1.5 py-0.5 rounded bg-red-500 text-white text-[10px] font-bold uppercase">Return</span>
+                                  )}
+                                  <div>
+                                    <div className="font-bold">{item.description}</div>
+                                    <div className="text-xs text-zinc-500">{item.code}</div>
+                                  </div>
+                                </div>
                               </td>
-                              <td className="px-6 py-4">{(item.selling_price || 0).toFixed(2)}</td>
+                              <td className="px-6 py-4">
+                                <span className={cn(item.isReturn && "text-red-500")}>
+                                  {item.isReturn ? "-" : ""}{(item.selling_price || 0).toFixed(2)}
+                                </span>
+                              </td>
                               <td className="px-6 py-4">
                                 <div className="flex items-center gap-3">
                                   <button 
-                                    onClick={() => setCart(prev => prev.map(p => p.code === item.code ? { ...p, cartQty: Math.max(1, p.cartQty - 1) } : p))}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setCart(prev => prev.map((p, i) => i === index ? { ...p, cartQty: p.isReturn ? Math.min(-1, p.cartQty + 1) : Math.max(1, p.cartQty - 1) } : p));
+                                    }}
                                     className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center hover:bg-zinc-700"
                                   >
                                     -
                                   </button>
-                                  <span className="w-8 text-center font-bold">{item.cartQty}</span>
+                                  <span className="w-8 text-center font-bold">{Math.abs(item.cartQty)}</span>
                                   <button 
-                                    onClick={() => addToCart(item)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (item.isReturn) {
+                                        if (Math.abs(item.cartQty) < (item.originalQty || 1)) {
+                                          setCart(prev => prev.map((p, i) => i === index ? { ...p, cartQty: p.cartQty - 1 } : p));
+                                        } else {
+                                          showNotification("Cannot return more than original quantity", "error");
+                                        }
+                                      } else {
+                                        addToCart(item);
+                                      }
+                                    }}
                                     className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center hover:bg-zinc-700"
                                   >
                                     +
                                   </button>
                                 </div>
                               </td>
-                              <td className="px-6 py-4 font-bold">{((item.selling_price || 0) * item.cartQty).toFixed(2)}</td>
+                              <td className="px-6 py-4 font-bold">
+                                <span className={cn(item.isReturn && "text-red-500")}>
+                                  {((item.selling_price || 0) * item.cartQty).toFixed(2)} ৳
+                                </span>
+                              </td>
                               <td className="px-6 py-4 text-right">
-                                <button onClick={() => removeFromCart(item.code)} className="text-zinc-500 hover:text-red-400">
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeFromCart(index);
+                                  }} 
+                                  className="text-zinc-500 hover:text-red-400"
+                                >
                                   <Trash2 size={18} />
                                 </button>
                               </td>
@@ -2033,8 +2221,20 @@ export default function App() {
                     </div>
 
                     <div className="space-y-3 pt-4 border-t border-zinc-800">
+                      {cart.some(i => i.isReturn) && (
+                        <>
+                          <div className="flex justify-between text-red-400 text-sm">
+                            <span>Return Amount</span>
+                            <span>{Math.abs(cart.filter(i => i.isReturn).reduce((sum, i) => sum + (i.selling_price * i.cartQty), 0)).toFixed(2)} ৳</span>
+                          </div>
+                          <div className="flex justify-between text-emerald-400 text-sm">
+                            <span>New Items Amount</span>
+                            <span>{cart.filter(i => !i.isReturn).reduce((sum, i) => sum + (i.selling_price * i.cartQty), 0).toFixed(2)} ৳</span>
+                          </div>
+                        </>
+                      )}
                       <div className="flex justify-between text-zinc-400">
-                        <span>Subtotal</span>
+                        <span>Net Subtotal</span>
                         <span>{(cartTotal || 0).toFixed(2)} ৳</span>
                       </div>
                       <div className="flex justify-between text-red-400">
@@ -2356,9 +2556,9 @@ export default function App() {
                     <tbody className={cn("divide-y", isDark ? "divide-zinc-800" : "divide-zinc-100")}>
                       {products
                         .filter(p => 
-                          p.code.toLowerCase().includes(inventorySearch.toLowerCase()) || 
-                          p.description.toLowerCase().includes(inventorySearch.toLowerCase()) ||
-                          p.category.toLowerCase().includes(inventorySearch.toLowerCase())
+                          (p.code || "").toLowerCase().includes(inventorySearch.toLowerCase()) || 
+                          (p.description || "").toLowerCase().includes(inventorySearch.toLowerCase()) ||
+                          (p.category || "").toLowerCase().includes(inventorySearch.toLowerCase())
                         )
                         .map(p => (
                         <tr key={p.code} className={cn("transition-all", isDark ? "hover:bg-zinc-800/30" : "hover:bg-zinc-50")}>
@@ -2684,6 +2884,68 @@ export default function App() {
             </motion.div>
           )}
 
+          {activeTab === "history" && (
+            <motion.div 
+              key="history"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold">System History (Last 12 Hours)</h2>
+                <button 
+                  onClick={fetchAuditLogs}
+                  className={cn("p-2 rounded-xl transition-all", isDark ? "bg-zinc-800 hover:bg-zinc-700" : "bg-white border border-zinc-200 hover:bg-zinc-50 shadow-sm")}
+                >
+                  <RefreshCw size={20} />
+                </button>
+              </div>
+
+              <div className={cn("rounded-3xl border overflow-hidden transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left min-w-[600px]">
+                    <thead className={cn("text-zinc-400 text-xs uppercase tracking-wider", isDark ? "bg-zinc-800/50" : "bg-zinc-50")}>
+                      <tr>
+                        <th className="px-6 py-4">Time</th>
+                        <th className="px-6 py-4">Event</th>
+                        <th className="px-6 py-4">Details</th>
+                      </tr>
+                    </thead>
+                    <tbody className={cn("divide-y", isDark ? "divide-zinc-800" : "divide-zinc-100")}>
+                      {auditLogs.length === 0 ? (
+                        <tr>
+                          <td colSpan={3} className="px-6 py-12 text-center text-zinc-500 italic">No events recorded in the last 12 hours</td>
+                        </tr>
+                      ) : (
+                        auditLogs.map(log => (
+                          <tr key={log.id} className={cn("transition-all", isDark ? "hover:bg-zinc-800/30" : "hover:bg-zinc-50")}>
+                            <td className="px-6 py-4 text-sm font-mono">
+                              {format(new Date(log.created_at), "HH:mm:ss")}
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={cn(
+                                "px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider",
+                                log.event_type === "SALE" ? "bg-emerald-500/10 text-emerald-500" :
+                                log.event_type === "RETURN" ? "bg-red-500/10 text-red-500" :
+                                log.event_type === "EXCHANGE" ? "bg-blue-500/10 text-blue-500" :
+                                log.event_type === "BULK_IMPORT" ? "bg-purple-500/10 text-purple-500" :
+                                log.event_type === "LOGIN" ? "bg-zinc-500/10 text-zinc-500" :
+                                "bg-zinc-500/10 text-zinc-500"
+                              )}>
+                                {log.event_type}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-sm">{log.details}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           {activeTab === "about" && (
             <motion.div 
               key="about"
@@ -2934,10 +3196,24 @@ export default function App() {
                         <div key={i} className={cn("flex items-center justify-between p-3 rounded-xl border", isDark ? "bg-zinc-800 border-zinc-700" : "bg-zinc-50 border-zinc-200")}>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-bold truncate">{item.description}</p>
-                            <p className="text-xs text-zinc-500">Qty: {item.qty} | Price: {item.selling_price}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-xs text-zinc-500">Qty:</span>
+                              <div className="flex items-center gap-1">
+                                <button 
+                                  onClick={() => setReturnQuantities(prev => ({...prev, [item.product_code]: Math.max(1, (prev[item.product_code] || 1) - 1)}))}
+                                  className="w-5 h-5 rounded bg-zinc-700 text-white flex items-center justify-center text-[10px]"
+                                >-</button>
+                                <span className="text-xs font-bold w-4 text-center">{returnQuantities[item.product_code] || 0}</span>
+                                <button 
+                                  onClick={() => setReturnQuantities(prev => ({...prev, [item.product_code]: Math.min(item.qty, (prev[item.product_code] || 0) + 1)}))}
+                                  className="w-5 h-5 rounded bg-zinc-700 text-white flex items-center justify-center text-[10px]"
+                                >+</button>
+                              </div>
+                              <span className="text-xs text-zinc-500 ml-2">Price: {item.selling_price}</span>
+                            </div>
                           </div>
                           <button 
-                            onClick={() => handleExchange(billNumberInput, item.product_code)}
+                            onClick={() => handleExchange(billNumberInput, item.product_code, returnQuantities[item.product_code])}
                             className={cn("px-3 py-1 rounded-lg text-xs font-bold text-white", getThemeColor("bg"))}
                           >
                             Exchange
@@ -3000,10 +3276,24 @@ export default function App() {
                         <div key={i} className={cn("flex items-center justify-between p-3 rounded-xl border", isDark ? "bg-zinc-800 border-zinc-700" : "bg-zinc-50 border-zinc-200")}>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-bold truncate">{item.description}</p>
-                            <p className="text-xs text-zinc-500">Qty: {item.qty} | Price: {item.selling_price}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-xs text-zinc-500">Qty:</span>
+                              <div className="flex items-center gap-1">
+                                <button 
+                                  onClick={() => setReturnQuantities(prev => ({...prev, [item.product_code]: Math.max(1, (prev[item.product_code] || 1) - 1)}))}
+                                  className="w-5 h-5 rounded bg-zinc-700 text-white flex items-center justify-center text-[10px]"
+                                >-</button>
+                                <span className="text-xs font-bold w-4 text-center">{returnQuantities[item.product_code] || 0}</span>
+                                <button 
+                                  onClick={() => setReturnQuantities(prev => ({...prev, [item.product_code]: Math.min(item.qty, (prev[item.product_code] || 0) + 1)}))}
+                                  className="w-5 h-5 rounded bg-zinc-700 text-white flex items-center justify-center text-[10px]"
+                                >+</button>
+                              </div>
+                              <span className="text-xs text-zinc-500 ml-2">Price: {item.selling_price}</span>
+                            </div>
                           </div>
                           <button 
-                            onClick={() => handleReturn(billNumberInput, item.product_code)}
+                            onClick={() => handleReturn(billNumberInput, item.product_code, returnQuantities[item.product_code])}
                             className="px-3 py-1 rounded-lg text-xs font-bold text-white bg-red-500 hover:bg-red-600"
                           >
                             Return
@@ -3069,6 +3359,7 @@ export default function App() {
                       />
                       <h2 className="text-2xl font-bold uppercase">{shopName}</h2>
                       <div className="text-sm font-bold mt-1">Bill #: {previewBillData.transaction_id}</div>
+                      <div className="text-sm font-bold">Txn #: {previewBillData.transaction_id}</div>
                       <p className="text-sm">{format(new Date(previewBillData.date), "PPP p")}</p>
                     </div>
 
@@ -3088,8 +3379,20 @@ export default function App() {
                     </div>
 
                     <div className="border-t border-black pt-2 space-y-1">
+                      {previewBillData.items.some(i => i.isReturn) && (
+                        <>
+                          <div className="flex justify-between text-sm text-red-600">
+                            <span>Return Amount:</span>
+                            <span>{Math.abs(previewBillData.items.filter(i => i.isReturn).reduce((sum, i) => sum + (i.selling_price * i.cartQty), 0)).toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm text-emerald-600">
+                            <span>New Items Amount:</span>
+                            <span>{previewBillData.items.filter(i => !i.isReturn).reduce((sum, i) => sum + (i.selling_price * i.cartQty), 0).toFixed(2)}</span>
+                          </div>
+                        </>
+                      )}
                       <div className="flex justify-between">
-                        <span>Subtotal:</span>
+                        <span>Net Subtotal:</span>
                         <span>{(previewBillData.total + previewBillData.discount).toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between text-red-600">
@@ -3099,6 +3402,14 @@ export default function App() {
                       <div className="flex justify-between font-bold text-lg border-t-2 border-black pt-1">
                         <span>TOTAL:</span>
                         <span>{(previewBillData.total || 0).toFixed(2)} Taka</span>
+                      </div>
+                      <div className="flex justify-between text-sm pt-2">
+                        <span>Received:</span>
+                        <span>{(previewBillData.receivedAmount || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm font-bold">
+                        <span>Change:</span>
+                        <span>{(previewBillData.changeAmount || 0).toFixed(2)}</span>
                       </div>
                     </div>
 
@@ -3121,7 +3432,17 @@ export default function App() {
                     )}
 
                     <div className="mt-8 text-center text-xs space-y-4">
-                      <p>Thank you for shopping with us!</p>
+                      <div className="border-t border-dashed border-black pt-4 text-left">
+                        <p className="font-bold mb-1">POLICY:</p>
+                        <p>• No Cash Refund</p>
+                        <p>• No Return After Purchase</p>
+                        <p>• Exchange Allowed Within 72 Hours</p>
+                        <p className="ml-2 text-[10px] italic">(Must bring receipt & product in good condition)</p>
+                      </div>
+                      <div className="pt-2">
+                        <p className="font-bold text-sm">Thank you for shopping with us!</p>
+                        <p>Visit again soon.</p>
+                      </div>
                       {billQrData && (
                         <div className="flex justify-center">
                           <QRCodeSVG value={billQrData} size={80} />
