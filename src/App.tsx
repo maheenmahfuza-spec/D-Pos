@@ -219,6 +219,53 @@ const SplashScreen = ({ onComplete, shopName, appLogo }: { onComplete: () => voi
   );
 };
 
+const AVAILABLE_NOTES = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
+
+const getSuggestedPayments = (amount: number) => {
+  if (amount <= 0) return [];
+  const suggestions = new Set<number>();
+  
+  // 1. Exact amount
+  suggestions.add(Math.ceil(amount));
+  
+  // 2. Round up to nearest 10
+  suggestions.add(Math.ceil(amount / 10) * 10);
+  
+  // 3. Round up to nearest 50
+  suggestions.add(Math.ceil(amount / 50) * 50);
+  
+  // 4. Round up to nearest 100
+  suggestions.add(Math.ceil(amount / 100) * 100);
+  
+  // 5. Round up to nearest 500
+  suggestions.add(Math.ceil(amount / 500) * 500);
+
+  // 6. Round up to nearest 1000
+  suggestions.add(Math.ceil(amount / 1000) * 1000);
+
+  return Array.from(suggestions)
+    .filter(s => s >= amount)
+    .sort((a, b) => a - b)
+    .slice(0, 6);
+};
+
+const getChangeBreakdown = (change: number) => {
+  const breakdown: { note: number; count: number }[] = [];
+  let remaining = Math.floor(change); // Integer part for notes
+  
+  const sortedNotes = [...AVAILABLE_NOTES].sort((a, b) => b - a);
+  
+  for (const note of sortedNotes) {
+    if (remaining >= note) {
+      const count = Math.floor(remaining / note);
+      breakdown.push({ note, count });
+      remaining %= note;
+    }
+  }
+  
+  return breakdown;
+};
+
 const PaymentModal = ({ 
   total, 
   onClose, 
@@ -301,7 +348,7 @@ const PaymentModal = ({
                 </div>
               </div>
 
-              <div className="space-y-2">
+                <div className="space-y-2">
                 <label className="text-sm text-zinc-500">{isRefund ? "Amount to Refund" : "Amount to Pay"}</label>
                 <div className="flex gap-2">
                   <input
@@ -322,6 +369,32 @@ const PaymentModal = ({
                     Add
                   </button>
                 </div>
+                
+                {!isRefund && selectedType === "Cash" && remaining > 0 && (
+                  <div className="pt-2">
+                    <label className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2 block">Quick Cash Suggestions</label>
+                    <div className="flex flex-wrap gap-2">
+                      {getSuggestedPayments(remaining).map(s => (
+                        <button
+                          key={s}
+                          onClick={() => {
+                            setAmount(s.toString());
+                            // Automatically add if it's a quick suggestion? 
+                            // Let's just set the amount for now to let user confirm.
+                          }}
+                          className={cn(
+                            "px-3 py-1.5 rounded-lg text-xs font-bold border transition-all",
+                            isDark 
+                              ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-zinc-500" 
+                              : "bg-zinc-100 border-zinc-200 text-zinc-600 hover:border-zinc-300"
+                          )}
+                        >
+                          {s} ৳
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -541,10 +614,10 @@ const Bill = ({
             <span className="text-right">Price</span>
           </div>
           {items.map((item, i) => (
-            <div key={i} className="grid grid-cols-4 text-sm mb-1">
+            <div key={i} className={cn("grid grid-cols-4 text-sm mb-1", item.isReturn && "text-red-600")}>
               <span className="col-span-2 truncate">{item.description}</span>
-              <span className="text-right">x{item.cartQty}</span>
-              <span className="text-right">{((item.selling_price || 0) * item.cartQty).toFixed(2)}</span>
+              <span className="text-right">x{Math.abs(item.cartQty)}</span>
+              <span className="text-right">{Math.abs((item.selling_price || 0) * item.cartQty).toFixed(2)}</span>
             </div>
           ))}
         </div>
@@ -571,8 +644,8 @@ const Bill = ({
             <span>-{(discount || 0).toFixed(2)}</span>
           </div>
           <div className="flex justify-between font-bold text-lg border-t-2 border-black pt-1">
-            <span>TOTAL:</span>
-            <span>{(total || 0).toFixed(2)} Taka</span>
+            <span>{total < 0 ? "REFUND TOTAL:" : "TOTAL:"}</span>
+            <span>{Math.abs(total || 0).toFixed(2)} Taka</span>
           </div>
           <div className="flex justify-between text-sm pt-2">
             <span>Received:</span>
@@ -1041,7 +1114,7 @@ export default function App() {
         description: s.description,
         category: product?.category || "",
         cost_price: product?.cost_price || 0,
-        selling_price: s.selling_price,
+        selling_price: s.total_price / s.qty,
         qty: product?.qty || 0,
         cartQty: -qtyToReturn,
         isReturn: true,
@@ -1083,7 +1156,7 @@ export default function App() {
         description: s.description,
         category: product?.category || "",
         cost_price: product?.cost_price || 0,
-        selling_price: s.selling_price,
+        selling_price: s.total_price / s.qty,
         qty: product?.qty || 0,
         cartQty: -qtyToReturn,
         isReturn: true,
@@ -2025,7 +2098,7 @@ export default function App() {
                               </td>
                               <td className="px-6 py-4">
                                 <span className={cn(item.isReturn && "text-red-500")}>
-                                  {(item.selling_price || 0).toFixed(2)}
+                                  {Math.abs(item.selling_price || 0).toFixed(2)}
                                 </span>
                               </td>
                               <td className="px-6 py-4">
@@ -2061,7 +2134,7 @@ export default function App() {
                               </td>
                               <td className="px-6 py-4 font-bold">
                                 <span className={cn(item.isReturn && "text-red-500")}>
-                                  {((item.selling_price || 0) * item.cartQty).toFixed(2)} ৳
+                                  {Math.abs((item.selling_price || 0) * item.cartQty).toFixed(2)} ৳
                                 </span>
                               </td>
                               <td className="px-6 py-4 text-right">
@@ -2311,13 +2384,33 @@ export default function App() {
                           <span className="font-bold">{receivedAmount.toFixed(2)} ৳</span>
                         </div>
                         <div className="flex justify-between items-center">
-                          <span className="text-zinc-500">Bill Total:</span>
-                          <span className="font-bold">{finalTotal.toFixed(2)} ৳</span>
+                          <span className="text-zinc-500">{finalTotal < 0 ? "Refund Total:" : "Bill Total:"}</span>
+                          <span className="font-bold">{Math.abs(finalTotal).toFixed(2)} ৳</span>
                         </div>
                         <div className="pt-4 border-t border-zinc-800 flex justify-between items-center">
                           <span className="text-zinc-500 font-bold">Change:</span>
                           <span className="text-2xl font-black text-emerald-500">{changeAmount.toFixed(2)} ৳</span>
                         </div>
+
+                        {changeAmount >= 1 && (
+                          <div className="pt-4 space-y-2">
+                            <div className="text-[10px] text-zinc-500 uppercase tracking-wider text-left">Change Breakdown (Notes)</div>
+                            <div className="flex flex-wrap gap-2">
+                              {getChangeBreakdown(changeAmount).map((b, i) => (
+                                <div 
+                                  key={i}
+                                  className={cn(
+                                    "px-3 py-1.5 rounded-xl border flex items-center gap-2",
+                                    isDark ? "bg-zinc-950 border-zinc-800" : "bg-white border-zinc-200"
+                                  )}
+                                >
+                                  <span className="text-xs font-bold text-zinc-500">{b.count}x</span>
+                                  <span className={cn("font-bold", getThemeColor("text"))}>{b.note} ৳</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       <button 
@@ -2856,14 +2949,14 @@ export default function App() {
                         <tr key={s.id} className={cn("transition-all", isDark ? "hover:bg-zinc-800/30" : "hover:bg-zinc-50")}>
                           <td className="px-6 py-4 text-sm">{s.date}</td>
                           <td className="px-6 py-4">
-                            <div className="font-medium">{s.description}</div>
+                            <div className={cn("font-medium", s.qty < 0 && "text-red-500")}>{s.description}</div>
                             <div className="text-[10px] text-zinc-500 font-mono">{s.product_code}</div>
                             {s.transaction_id && (
                               <div className="text-[8px] text-zinc-600 mt-1 uppercase">{s.transaction_id}</div>
                             )}
                           </td>
-                          <td className="px-6 py-4">{s.qty}</td>
-                          <td className="px-6 py-4 font-bold">{(s.total_price || 0).toFixed(2)}</td>
+                          <td className={cn("px-6 py-4", s.qty < 0 && "text-red-500")}>{s.qty}</td>
+                          <td className={cn("px-6 py-4 font-bold", s.qty < 0 && "text-red-500")}>{(s.total_price || 0).toFixed(2)}</td>
                           <td className="px-6 py-4 text-zinc-500 text-sm">{s.member_phone || "-"}</td>
                           <td className="px-6 py-4 text-right">
                             {s.transaction_id && (
@@ -3209,7 +3302,8 @@ export default function App() {
                                   className="w-5 h-5 rounded bg-zinc-700 text-white flex items-center justify-center text-[10px]"
                                 >+</button>
                               </div>
-                              <span className="text-xs text-zinc-500 ml-2">Price: {item.selling_price}</span>
+                              <span className="text-xs text-zinc-500 ml-2">Price: {(item.total_price / item.qty).toFixed(2)}</span>
+                              <span className="text-xs font-bold text-emerald-500 ml-auto">Total: {((item.total_price / item.qty) * (returnQuantities[item.product_code] || 0)).toFixed(2)}</span>
                             </div>
                           </div>
                           <button 
@@ -3289,7 +3383,8 @@ export default function App() {
                                   className="w-5 h-5 rounded bg-zinc-700 text-white flex items-center justify-center text-[10px]"
                                 >+</button>
                               </div>
-                              <span className="text-xs text-zinc-500 ml-2">Price: {item.selling_price}</span>
+                              <span className="text-xs text-zinc-500 ml-2">Price: {(item.total_price / item.qty).toFixed(2)}</span>
+                              <span className="text-xs font-bold text-red-500 ml-auto">Total: {((item.total_price / item.qty) * (returnQuantities[item.product_code] || 0)).toFixed(2)}</span>
                             </div>
                           </div>
                           <button 
@@ -3370,10 +3465,10 @@ export default function App() {
                         <span className="text-right">Price</span>
                       </div>
                       {previewBillData.items.map((item, i) => (
-                        <div key={i} className="grid grid-cols-4 text-sm mb-1">
+                        <div key={i} className={cn("grid grid-cols-4 text-sm mb-1", item.isReturn && "text-red-600")}>
                           <span className="col-span-2 truncate">{item.description}</span>
-                          <span className="text-right">x{item.cartQty}</span>
-                          <span className="text-right">{((item.selling_price || 0) * item.cartQty).toFixed(2)}</span>
+                          <span className="text-right">x{Math.abs(item.cartQty)}</span>
+                          <span className="text-right">{Math.abs((item.selling_price || 0) * item.cartQty).toFixed(2)}</span>
                         </div>
                       ))}
                     </div>
@@ -3400,8 +3495,8 @@ export default function App() {
                         <span>-{(previewBillData.discount || 0).toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between font-bold text-lg border-t-2 border-black pt-1">
-                        <span>TOTAL:</span>
-                        <span>{(previewBillData.total || 0).toFixed(2)} Taka</span>
+                        <span>{previewBillData.total < 0 ? "REFUND TOTAL:" : "TOTAL:"}</span>
+                        <span>{Math.abs(previewBillData.total || 0).toFixed(2)} Taka</span>
                       </div>
                       <div className="flex justify-between text-sm pt-2">
                         <span>Received:</span>
