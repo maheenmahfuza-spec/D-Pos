@@ -2025,7 +2025,7 @@ export default function App() {
                               </td>
                               <td className="px-6 py-4">
                                 <span className={cn(item.isReturn && "text-red-500")}>
-                                  {item.isReturn ? "-" : ""}{(item.selling_price || 0).toFixed(2)}
+                                  {(item.selling_price || 0).toFixed(2)}
                                 </span>
                               </td>
                               <td className="px-6 py-4">
