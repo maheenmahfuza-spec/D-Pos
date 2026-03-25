@@ -89,6 +89,12 @@ db.exec(`
     details TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // Migration: Add columns to sales if they don't exist
@@ -197,6 +203,32 @@ async function startServer() {
   app.get("/api/products", (req, res) => {
     const products = db.prepare("SELECT * FROM products").all();
     res.json(products);
+  });
+
+  app.get("/api/categories", (req, res) => {
+    const categories = db.prepare("SELECT * FROM categories ORDER BY name ASC").all();
+    res.json(categories);
+  });
+
+  app.post("/api/categories", (req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ success: false, message: "Category name is required" });
+    try {
+      db.prepare("INSERT INTO categories (name) VALUES (?)").run(name);
+      logEvent("CATEGORY_CREATE", `Created category: ${name}`);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.delete("/api/categories/:id", (req, res) => {
+    try {
+      db.prepare("DELETE FROM categories WHERE id = ?").run(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
   });
 
   app.post("/api/products", (req, res) => {

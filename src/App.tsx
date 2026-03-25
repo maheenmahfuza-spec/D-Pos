@@ -36,7 +36,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import * as XLSX from "xlsx";
 import { toPng } from "html-to-image";
-import { format, differenceInDays } from "date-fns";
+import { format, differenceInDays, isSameDay, isSameWeek, isSameMonth, isSameQuarter, isSameYear } from "date-fns";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -997,6 +997,9 @@ export default function App() {
   const completeSaleBtnRef = useRef<HTMLButtonElement>(null);
 
   const [allMembers, setAllMembers] = useState<Member[]>([]);
+  const [categories, setCategories] = useState<{id: number, name: string}[]>([]);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
   const [selectedMemberHistory, setSelectedMemberHistory] = useState<PointsHistory[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -1052,6 +1055,7 @@ export default function App() {
     if (role) {
       fetchProducts();
       fetchAuditLogs();
+      fetchCategories();
       if (role === "admin" || role === "dev") {
         fetchSales();
         fetchAllMembers();
@@ -1131,6 +1135,48 @@ export default function App() {
     const res = await fetch("/api/products");
     const data = await res.json();
     setProducts(data);
+  };
+
+  const fetchCategories = async () => {
+    const res = await fetch("/api/categories");
+    const data = await res.json();
+    setCategories(data);
+  };
+
+  const addCategory = async () => {
+    if (!newCategoryName) return;
+    try {
+      const res = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newCategoryName }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showNotification("Category added successfully", "success");
+        setNewCategoryName("");
+        fetchCategories();
+      } else {
+        showNotification(data.message, "error");
+      }
+    } catch (err) {
+      showNotification("Failed to add category", "error");
+    }
+  };
+
+  const deleteCategory = async (id: number) => {
+    try {
+      const res = await fetch(`/api/categories/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.success) {
+        showNotification("Category deleted", "success");
+        fetchCategories();
+      } else {
+        showNotification(data.message, "error");
+      }
+    } catch (err) {
+      showNotification("Failed to delete category", "error");
+    }
   };
 
   const fetchSettings = async () => {
@@ -1582,8 +1628,29 @@ export default function App() {
     }
   };
 
-  const downloadSalesReport = () => {
-    const reportData = sales.map(s => ({
+  const downloadSalesReport = (type: string = "all") => {
+    let filteredSales = [...sales];
+    let fileName = `Sales_Report_${format(new Date(), "yyyy-MM-dd")}`;
+
+    const now = new Date();
+    if (type === "daily") {
+      filteredSales = sales.filter(s => isSameDay(new Date(s.date), now));
+      fileName = `Daily_Sales_${format(now, "yyyy-MM-dd")}`;
+    } else if (type === "weekly") {
+      filteredSales = sales.filter(s => isSameWeek(new Date(s.date), now));
+      fileName = `Weekly_Sales_${format(now, "yyyy-ww")}`;
+    } else if (type === "monthly") {
+      filteredSales = sales.filter(s => isSameMonth(new Date(s.date), now));
+      fileName = `Monthly_Sales_${format(now, "yyyy-MM")}`;
+    } else if (type === "quarterly") {
+      filteredSales = sales.filter(s => isSameQuarter(new Date(s.date), now));
+      fileName = `Quarterly_Sales_${format(now, "yyyy-Qq")}`;
+    } else if (type === "annual") {
+      filteredSales = sales.filter(s => isSameYear(new Date(s.date), now));
+      fileName = `Annual_Sales_${format(now, "yyyy")}`;
+    }
+
+    const reportData = filteredSales.map(s => ({
       Date: s.date,
       'Transaction ID': s.transaction_id,
       'Product Code': s.product_code,
@@ -1596,10 +1663,41 @@ export default function App() {
       Member: s.member_phone || 'Guest'
     }));
 
+    if (type === "product-wise") {
+      const productWise: {[key: string]: any} = {};
+      filteredSales.forEach(s => {
+        if (!productWise[s.product_code]) {
+          productWise[s.product_code] = {
+            'Product Code': s.product_code,
+            Description: s.description,
+            'Total Qty Sold': 0,
+            'Total Revenue': 0,
+            'Total Discount': 0,
+            'Net Revenue': 0
+          };
+        }
+        productWise[s.product_code]['Total Qty Sold'] += s.qty;
+        productWise[s.product_code]['Total Revenue'] += s.total_price;
+        productWise[s.product_code]['Total Discount'] += (s.discount || 0);
+        productWise[s.product_code]['Net Revenue'] += (s.total_price - (s.discount || 0));
+      });
+      const finalData = Object.values(productWise).map(p => ({
+        ...p,
+        'Total Revenue': p['Total Revenue'].toFixed(2),
+        'Total Discount': p['Total Discount'].toFixed(2),
+        'Net Revenue': p['Net Revenue'].toFixed(2)
+      }));
+      const ws = XLSX.utils.json_to_sheet(finalData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Product-wise Sales");
+      XLSX.writeFile(wb, `Product_Wise_Sales_${format(now, "yyyy-MM-dd")}.xlsx`);
+      return;
+    }
+
     const ws = XLSX.utils.json_to_sheet(reportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Sales Report");
-    XLSX.writeFile(wb, `Sales_Report_${format(new Date(), "yyyy-MM-dd")}.xlsx`);
+    XLSX.writeFile(wb, `${fileName}.xlsx`);
   };
 
   const downloadInventoryData = () => {
@@ -3113,6 +3211,15 @@ export default function App() {
                     />
                   </div>
                   <button 
+                    onClick={() => setShowCategoryModal(true)}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all border",
+                      isDark ? "bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700" : "bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-50 shadow-sm"
+                    )}
+                  >
+                    <Package size={10} /> Category Management
+                  </button>
+                  <button 
                     onClick={downloadInventoryData}
                     className={cn(
                       "px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all border",
@@ -3229,10 +3336,16 @@ export default function App() {
                     <input 
                       type="text" 
                       required
+                      list="category-list"
                       value={newProduct.category}
                       onChange={e => setNewProduct({...newProduct, category: e.target.value})}
                       className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3"
                     />
+                    <datalist id="category-list">
+                      {categories.map(c => (
+                        <option key={c.id} value={c.name} />
+                      ))}
+                    </datalist>
                   </div>
                   <div>
                     <label className="block text-sm text-zinc-400 mb-2">Cost Price</label>
@@ -3769,20 +3882,26 @@ export default function App() {
                         <button onClick={() => updatePassword("cashier")} className={cn("px-4 rounded-xl text-xs", isDark ? "bg-zinc-700" : "bg-zinc-100")}>Update</button>
                       </div>
                     </div>
-
-                    <div className="pt-4 border-t border-zinc-800">
-                      <button 
-                        onClick={() => setShowCouponManagement(true)}
-                        className={cn(
-                          "w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all",
-                          isDark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-                        )}
-                      >
-                        <Ticket size={14} />
-                        Coupon Management
-                      </button>
-                    </div>
                   </div>
+                </div>
+
+                {/* Coupon Management */}
+                <div className={cn("p-8 rounded-3xl border space-y-6 transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                  <div className={cn("flex items-center gap-3", getThemeColor("text"))}>
+                    <Ticket size={14} />
+                    <h3 className="text-lg font-bold">COUPON MANAGEMENT</h3>
+                  </div>
+                  <p className="text-sm text-zinc-400">Manage promotional coupons and discounts.</p>
+                  <button 
+                    onClick={() => setShowCouponManagement(true)}
+                    className={cn(
+                      "w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all",
+                      isDark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                    )}
+                  >
+                    <Ticket size={14} />
+                    Open Coupon Manager
+                  </button>
                 </div>
               </div>
             </motion.div>
@@ -4226,6 +4345,74 @@ export default function App() {
           )}
         </AnimatePresence>
       </main>
+      <AnimatePresence>
+        {showCategoryModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className={cn(
+                "w-full max-w-md rounded-3xl p-8 border",
+                isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-2xl"
+              )}
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold">Category Management</h3>
+                <button onClick={() => setShowCategoryModal(false)} className="p-2 hover:bg-zinc-800 rounded-full transition-colors">
+                  <X size={14} />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-xs text-zinc-500 uppercase mb-2">New Category Name</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={newCategoryName}
+                      onChange={e => setNewCategoryName(e.target.value)}
+                      placeholder="e.g. Footwear, Apparel..."
+                      className={cn("flex-1 border rounded-xl px-4 py-2", isDark ? "bg-zinc-800 border-zinc-700" : "bg-white border-zinc-200")}
+                    />
+                    <button 
+                      onClick={addCategory}
+                      className={cn("px-4 rounded-xl font-bold", getThemeColor("bg"), "text-white")}
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-zinc-800">
+                  <label className="block text-xs text-zinc-500 uppercase mb-4">Existing Categories</label>
+                  <div className="max-h-64 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                    {categories.length === 0 ? (
+                      <p className="text-sm text-zinc-500 italic">No categories created yet.</p>
+                    ) : (
+                      categories.map(c => (
+                        <div key={c.id} className={cn("flex justify-between items-center p-3 rounded-xl", isDark ? "bg-zinc-800/50" : "bg-zinc-50")}>
+                          <span className="text-sm font-medium">{c.name}</span>
+                          <button 
+                            onClick={() => deleteCategory(c.id)}
+                            className="p-1.5 text-zinc-500 hover:text-red-500 transition-colors"
+                          >
+                            <Trash2 size={10} />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
