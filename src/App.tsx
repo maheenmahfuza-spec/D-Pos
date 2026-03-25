@@ -166,7 +166,7 @@ const SplashScreen = ({ onComplete, shopName, appLogo }: { onComplete: () => voi
             className="w-24 h-24 bg-emerald-500 rounded-3xl flex items-center justify-center mb-6 shadow-2xl shadow-emerald-500/20"
             variants={itemVariants}
           >
-            <ShoppingCart className="text-white" size={48} />
+            <ShoppingCart className="text-white" size={32} />
           </motion.div>
         )}
         
@@ -355,7 +355,7 @@ const PaymentModal = ({
         <div className="p-6 border-b flex justify-between items-center">
           <h3 className="text-xl font-bold">Payment Details</h3>
           <button onClick={onClose} className="text-zinc-500 hover:text-red-400">
-            <X size={24} />
+            <X size={18} />
           </button>
         </div>
 
@@ -461,7 +461,7 @@ const PaymentModal = ({
                       <div className="flex items-center gap-3">
                         <span className="text-sm">{p.amount.toFixed(2)}</span>
                         <button onClick={() => removePayment(i)} className="text-red-400 hover:text-red-300">
-                          <Trash2 size={14} />
+                          <Trash2 size={10} />
                         </button>
                       </div>
                     </div>
@@ -584,7 +584,7 @@ const Login = ({ onLogin, shopName, appLogo, getThemeColor }: { onLogin: (role: 
 
           {error && (
             <div className="flex items-center gap-2 text-red-400 text-sm bg-red-400/10 p-3 rounded-lg border border-red-400/20">
-              <AlertCircle size={16} />
+              <AlertCircle size={12} />
               {error}
             </div>
           )}
@@ -743,7 +743,7 @@ const Bill = ({
           </div>
           {billQrData && (
             <div className="flex justify-center">
-              <QRCodeSVG value={billQrData} size={80} level="M" />
+              <QRCodeSVG value={billQrData} size={64} level="M" />
             </div>
           )}
         </div>
@@ -1642,7 +1642,7 @@ export default function App() {
 
   return (
     <div className={cn(
-      "min-h-screen flex flex-col lg:flex-row w-full max-w-[1440px] mx-auto relative transition-colors duration-300",
+      "h-screen overflow-hidden flex flex-col lg:flex-row w-full max-w-[1440px] mx-auto relative transition-colors duration-300",
       isDark ? "bg-zinc-950 text-zinc-100" : "bg-zinc-50 text-zinc-900"
     )}>
       <Bill 
@@ -1675,7 +1675,7 @@ export default function App() {
                   : "bg-red-500/10 border-red-500/20 text-red-500"
             )}
           >
-            {notification.type === "success" ? <CheckCircle2 size={20} /> : notification.type === "info" ? <Info size={20} /> : <AlertCircle size={20} />}
+            {notification.type === "success" ? <CheckCircle2 size={16} /> : notification.type === "info" ? <Info size={16} /> : <AlertCircle size={16} />}
             <span className="font-bold text-sm">{notification.message}</span>
           </motion.div>
         )}
@@ -1697,7 +1697,7 @@ export default function App() {
           onClick={() => setIsMobileMenuOpen(true)}
           className={cn("p-2 rounded-lg", isDark ? "hover:bg-zinc-800" : "hover:bg-zinc-100")}
         >
-          <Menu size={24} />
+          <Menu size={18} />
         </button>
       </div>
 
@@ -1734,7 +1734,7 @@ export default function App() {
                   onClick={() => setIsMobileMenuOpen(false)}
                   className={cn("p-2 rounded-lg", isDark ? "hover:bg-zinc-800" : "hover:bg-zinc-100")}
                 >
-                  <X size={24} />
+                  <X size={18} />
                 </button>
               </div>
 
@@ -1748,7 +1748,7 @@ export default function App() {
                       : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
                   )}
                 >
-                  <ShoppingCart size={20} /> POS
+                  <ShoppingCart size={16} /> POS
                 </button>
 
                 {(role === "admin" || role === "dev") && (
@@ -1762,7 +1762,7 @@ export default function App() {
                           : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
                       )}
                     >
-                      <Package size={20} /> Inventory
+                      <Package size={16} /> Inventory
                     </button>
                     <button 
                       onClick={() => { setActiveTab("members"); setIsMobileMenuOpen(false); }}
@@ -1773,7 +1773,7 @@ export default function App() {
                           : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
                       )}
                     >
-                      <Users size={20} /> Members
+                      <Users size={16} /> Members
                     </button>
                     <button 
                       onClick={() => { setActiveTab("reports"); setIsMobileMenuOpen(false); }}
@@ -1784,7 +1784,7 @@ export default function App() {
                           : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
                       )}
                     >
-                      <LayoutDashboard size={20} /> Sales Report
+                      <LayoutDashboard size={16} /> Sales Report
                     </button>
                   </>
                 )}
@@ -1798,7 +1798,7 @@ export default function App() {
                       : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
                   )}
                 >
-                  <RotateCcw size={20} /> History
+                  <RotateCcw size={16} /> History
                 </button>
 
                 <button 
@@ -1810,7 +1810,7 @@ export default function App() {
                       : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
                   )}
                 >
-                  <Info size={20} /> About
+                  <Info size={16} /> About
                 </button>
 
                 {role === "dev" && (
@@ -1823,7 +1823,7 @@ export default function App() {
                         : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
                     )}
                   >
-                    <Settings size={20} /> Dev Options
+                    <Settings size={16} /> Dev Options
                   </button>
                 )}
               </div>
@@ -1836,14 +1836,14 @@ export default function App() {
                     isDark ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700" : "bg-zinc-100 border-zinc-200 text-zinc-600 hover:bg-zinc-200"
                   )}
                 >
-                  {isDark ? <Sun size={20} /> : <Moon size={20} />}
+                  {isDark ? <Sun size={16} /> : <Moon size={16} />}
                   <span>{isDark ? "Light Mode" : "Dark Mode"}</span>
                 </button>
                 <button 
                   onClick={handleLogout}
                   className="flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:bg-red-400/10 w-full transition-all"
                 >
-                  <LogOut size={20} /> Logout
+                  <LogOut size={16} /> Logout
                 </button>
               </div>
             </motion.nav>
@@ -1857,7 +1857,7 @@ export default function App() {
         animate={{ width: isSidebarOpen ? 256 : 80 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
         className={cn(
-          "hidden lg:flex border-r p-4 flex-col gap-2 shrink-0 transition-colors overflow-hidden",
+          "hidden lg:flex border-r p-4 flex-col gap-2 shrink-0 transition-colors overflow-y-auto overflow-x-hidden",
           isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"
         )}
       >
@@ -1897,7 +1897,7 @@ export default function App() {
             )}
             title={!isSidebarOpen ? (isDark ? "Light Mode" : "Dark Mode") : ""}
           >
-            <span className="shrink-0">{isDark ? <Sun size={20} /> : <Moon size={20} />}</span>
+            <span className="shrink-0">{isDark ? <Sun size={16} /> : <Moon size={16} />}</span>
             {isSidebarOpen && <span className="truncate">{isDark ? "Light Mode" : "Dark Mode"}</span>}
           </button>
         </div>
@@ -1913,7 +1913,7 @@ export default function App() {
           )}
           title={!isSidebarOpen ? "POS" : ""}
         >
-          <ShoppingCart size={20} className="shrink-0" />
+          <ShoppingCart size={16} className="shrink-0" />
           {isSidebarOpen && <span className="truncate">POS</span>}
         </button>
 
@@ -1930,7 +1930,7 @@ export default function App() {
               )}
               title={!isSidebarOpen ? "Inventory" : ""}
             >
-              <Package size={20} className="shrink-0" />
+              <Package size={16} className="shrink-0" />
               {isSidebarOpen && <span className="truncate">Inventory</span>}
             </button>
             <button 
@@ -1944,7 +1944,7 @@ export default function App() {
               )}
               title={!isSidebarOpen ? "Members" : ""}
             >
-              <Users size={20} className="shrink-0" />
+              <Users size={16} className="shrink-0" />
               {isSidebarOpen && <span className="truncate">Members</span>}
             </button>
             <button 
@@ -1958,7 +1958,7 @@ export default function App() {
               )}
               title={!isSidebarOpen ? "Sales Report" : ""}
             >
-              <LayoutDashboard size={20} className="shrink-0" />
+              <LayoutDashboard size={16} className="shrink-0" />
               {isSidebarOpen && <span className="truncate">Sales Report</span>}
             </button>
           </>
@@ -1975,7 +1975,7 @@ export default function App() {
           )}
           title={!isSidebarOpen ? "History" : ""}
         >
-          <RotateCcw size={20} className="shrink-0" />
+          <RotateCcw size={16} className="shrink-0" />
           {isSidebarOpen && <span className="truncate">History</span>}
         </button>
 
@@ -1990,7 +1990,7 @@ export default function App() {
           )}
           title={!isSidebarOpen ? "About" : ""}
         >
-          <Info size={20} className="shrink-0" />
+          <Info size={16} className="shrink-0" />
           {isSidebarOpen && <span className="truncate">About</span>}
         </button>
 
@@ -2006,7 +2006,7 @@ export default function App() {
             )}
             title={!isSidebarOpen ? "Dev Options" : ""}
           >
-            <Settings size={20} className="shrink-0" />
+            <Settings size={16} className="shrink-0" />
             {isSidebarOpen && <span className="truncate">Dev Options</span>}
           </button>
         )}
@@ -2020,7 +2020,7 @@ export default function App() {
             )}
             title={!isSidebarOpen ? "Logout" : ""}
           >
-            <LogOut size={20} className="shrink-0" />
+            <LogOut size={16} className="shrink-0" />
             {isSidebarOpen && <span className="truncate">Logout</span>}
           </button>
         </div>
@@ -2028,8 +2028,8 @@ export default function App() {
 
       {/* Main Content */}
       <main className={cn(
-        "flex-1 p-4 lg:p-8 transition-colors",
-        activeTab === "pos" ? "lg:h-screen lg:overflow-hidden" : "overflow-auto",
+        "flex-1 p-4 lg:p-8 transition-colors overflow-y-auto",
+        activeTab === "pos" ? "lg:h-full lg:overflow-hidden" : "",
         isDark ? "bg-zinc-950" : "bg-zinc-50"
       )}>
         <AnimatePresence mode="wait">
@@ -2049,7 +2049,7 @@ export default function App() {
                     "flex items-center gap-4 p-3 rounded-2xl border transition-colors w-full",
                     isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
                   )}>
-                    <Search className="text-zinc-500" size={20} />
+                    <Search className="text-zinc-500" size={16} />
                     <input 
                       ref={productSearchRef}
                       type="text" 
@@ -2121,7 +2121,7 @@ export default function App() {
                         {cart.length === 0 ? (
                           <tr>
                             <td colSpan={5} className="px-6 py-20 text-center text-zinc-500">
-                              <ShoppingCart size={48} className="mx-auto mb-4 opacity-20" />
+                              <ShoppingCart size={32} className="mx-auto mb-4 opacity-20" />
                               <p>No items in cart. Use search to add products.</p>
                             </td>
                           </tr>
@@ -2197,7 +2197,7 @@ export default function App() {
                                   }} 
                                   className="text-zinc-500 hover:text-red-400"
                                 >
-                                  <Trash2 size={18} />
+                                  <Trash2 size={14} />
                                 </button>
                               </td>
                             </tr>
@@ -2221,7 +2221,7 @@ export default function App() {
                           : isDark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                       )}
                     >
-                      <Pause size={16} />
+                      <Pause size={12} />
                       Hold
                     </button>
                     <button 
@@ -2231,7 +2231,7 @@ export default function App() {
                         isDark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                       )}
                     >
-                      <RotateCcw size={16} />
+                      <RotateCcw size={12} />
                       Recall
                     </button>
                     <button 
@@ -2241,7 +2241,7 @@ export default function App() {
                         isDark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                       )}
                     >
-                      <ArrowLeftRight size={16} />
+                      <ArrowLeftRight size={12} />
                       Return
                     </button>
                     <button 
@@ -2251,7 +2251,7 @@ export default function App() {
                         isDark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                       )}
                     >
-                      <RefreshCw size={16} />
+                      <RefreshCw size={12} />
                       Exchange
                     </button>
                   </div>
@@ -2423,7 +2423,7 @@ export default function App() {
                       )}
                     >
                       <div className="w-20 h-20 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mx-auto">
-                        <CheckCircle2 size={48} />
+                        <CheckCircle2 size={32} />
                       </div>
                       <div className="space-y-2">
                         <h3 className="text-2xl font-bold">Sale Completed!</h3>
@@ -2486,7 +2486,7 @@ export default function App() {
                       )}
                     >
                       <div className="w-20 h-20 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mx-auto">
-                        <AlertCircle size={48} />
+                        <AlertCircle size={32} />
                       </div>
                       <div className="space-y-2">
                         <h3 className="text-2xl font-bold text-red-500">Checkout Error</h3>
@@ -2517,7 +2517,7 @@ export default function App() {
               <div className="p-6 border-b border-zinc-800 flex justify-between items-center">
                 <h3 className="text-xl font-bold">Register New Member</h3>
                 <button onClick={() => setShowRegisterModal(false)} className="text-zinc-500 hover:text-white">
-                  <X size={24} />
+                  <X size={18} />
                 </button>
               </div>
               <form onSubmit={registerMember} className="p-6 space-y-4">
@@ -2583,7 +2583,7 @@ export default function App() {
               <div className="p-6 border-b border-zinc-800 flex justify-between items-center">
                 <h3 className="text-xl font-bold">Points History</h3>
                 <button onClick={() => setShowHistoryModal(false)} className="text-zinc-500 hover:text-white">
-                  <Trash2 size={24} />
+                  <Trash2 size={14} />
                 </button>
               </div>
               <div className="max-h-[60vh] overflow-auto p-6">
@@ -2638,7 +2638,7 @@ export default function App() {
                     "flex items-center gap-2 px-4 py-2 rounded-xl border w-full sm:w-64 transition-colors",
                     isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
                   )}>
-                    <Search size={18} className="text-zinc-500" />
+                    <Search size={14} className="text-zinc-500" />
                     <input 
                       type="text" 
                       placeholder="Search by code, name, category..." 
@@ -2654,14 +2654,14 @@ export default function App() {
                       isDark ? "bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700" : "bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-50 shadow-sm"
                     )}
                   >
-                    <Download size={18} /> Download Inventory
+                    <Download size={14} /> Download Inventory
                   </button>
                   {(role === "admin" || role === "dev") && (
                     <button 
                       onClick={() => setActiveTab("add-product")}
                       className={cn("text-white px-4 py-2 rounded-xl flex items-center justify-center gap-2 whitespace-nowrap", getThemeColor("bg"))}
                     >
-                      <Plus size={20} /> Add Product
+                      <Plus size={16} /> Add Product
                     </button>
                   )}
                 </div>
@@ -2677,7 +2677,7 @@ export default function App() {
                 ].map((stat, i) => (
                   <div key={i} className={cn("p-6 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                     <div className="flex items-center gap-3 mb-2">
-                      <stat.icon size={18} className="text-zinc-500" />
+                      <stat.icon size={14} className="text-zinc-500" />
                       <div className="text-zinc-500 text-xs uppercase tracking-wider">{stat.label}</div>
                     </div>
                     <div className={cn("text-2xl font-bold", i === 3 ? getThemeColor("text") : "")}>{stat.value}</div>
@@ -2829,7 +2829,7 @@ export default function App() {
                     "flex items-center gap-2 px-4 py-2 rounded-xl border w-full sm:w-64 transition-colors",
                     isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
                   )}>
-                    <Search size={18} className="text-zinc-500" />
+                    <Search size={14} className="text-zinc-500" />
                     <input 
                       type="text" 
                       placeholder="Search by name or phone..." 
@@ -2842,7 +2842,7 @@ export default function App() {
                     onClick={() => setShowRegisterModal(true)}
                     className={cn("text-white px-4 py-2 rounded-xl flex items-center justify-center gap-2 whitespace-nowrap", getThemeColor("bg"))}
                   >
-                    <Plus size={20} /> Register Member
+                    <Plus size={16} /> Register Member
                   </button>
                 </div>
               </div>
@@ -2908,7 +2908,7 @@ export default function App() {
                     "flex items-center gap-2 px-4 py-2 rounded-xl border w-full sm:w-64 transition-colors",
                     isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
                   )}>
-                    <Search size={18} className="text-zinc-500" />
+                    <Search size={14} className="text-zinc-500" />
                     <input 
                       type="text" 
                       placeholder="Search by product, code, ID..." 
@@ -2924,13 +2924,13 @@ export default function App() {
                       isDark ? "bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700" : "bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-50 shadow-sm"
                     )}
                   >
-                    <Download size={18} /> Download Report
+                    <Download size={14} /> Download Report
                   </button>
                   <div className={cn(
                     "flex items-center gap-2 p-2 rounded-2xl border transition-colors",
                     isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
                   )}>
-                    <Calendar size={18} className="text-zinc-500 ml-2" />
+                    <Calendar size={14} className="text-zinc-500 ml-2" />
                     <input 
                       type="date" 
                       value={dateRange.start}
@@ -3042,7 +3042,7 @@ export default function App() {
                   onClick={fetchAuditLogs}
                   className={cn("p-2 rounded-xl transition-all", isDark ? "bg-zinc-800 hover:bg-zinc-700" : "bg-white border border-zinc-200 hover:bg-zinc-50 shadow-sm")}
                 >
-                  <RefreshCw size={20} />
+                  <RefreshCw size={16} />
                 </button>
               </div>
 
@@ -3106,7 +3106,7 @@ export default function App() {
               <div className="grid gap-6">
                 <section className={cn("p-8 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                   <h3 className={cn("text-xl font-bold mb-4 flex items-center gap-2", getThemeColor("text"))}>
-                    <ShoppingCart size={24} /> POS (Point of Sale)
+                    <ShoppingCart size={18} /> POS (Point of Sale)
                   </h3>
                   <p className="text-sm leading-relaxed text-zinc-400">
                     The POS tab is where you process sales. You can search for products by their code or description. 
@@ -3117,7 +3117,7 @@ export default function App() {
 
                 <section className={cn("p-8 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                   <h3 className={cn("text-xl font-bold mb-4 flex items-center gap-2", getThemeColor("text"))}>
-                    <Package size={24} /> Inventory Management
+                    <Package size={18} /> Inventory Management
                   </h3>
                   <p className="text-sm leading-relaxed text-zinc-400">
                     Manage your stock here. You can view total stock statistics, SKU counts, and total values. 
@@ -3128,7 +3128,7 @@ export default function App() {
 
                 <section className={cn("p-8 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                   <h3 className={cn("text-xl font-bold mb-4 flex items-center gap-2", getThemeColor("text"))}>
-                    <Users size={24} /> Membership Directory
+                    <Users size={18} /> Membership Directory
                   </h3>
                   <p className="text-sm leading-relaxed text-zinc-400">
                     Register and manage your customers. Members earn points on every purchase (1 point per 100 Taka). 
@@ -3139,7 +3139,7 @@ export default function App() {
 
                 <section className={cn("p-8 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                   <h3 className={cn("text-xl font-bold mb-4 flex items-center gap-2", getThemeColor("text"))}>
-                    <LayoutDashboard size={24} /> Sales Reports
+                    <LayoutDashboard size={18} /> Sales Reports
                   </h3>
                   <p className="text-sm leading-relaxed text-zinc-400">
                     Analyze your business performance. Filter sales by date range, view total revenue, and see which items are selling best. 
@@ -3149,7 +3149,7 @@ export default function App() {
 
                 <section className={cn("p-8 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                   <h3 className={cn("text-xl font-bold mb-4 flex items-center gap-2", getThemeColor("text"))}>
-                    <Settings size={24} /> Dev Options & Settings
+                    <Settings size={18} /> Dev Options & Settings
                   </h3>
                   <p className="text-sm leading-relaxed text-zinc-400">
                     Customize your application. Change the shop name, update the logo, set your theme color, 
@@ -3184,7 +3184,7 @@ export default function App() {
                 {/* Bulk Upload */}
                 <div className={cn("p-8 rounded-3xl border space-y-6 transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                   <div className={cn("flex items-center gap-3", getThemeColor("text"))}>
-                    <Upload size={24} />
+                    <Upload size={18} />
                     <h3 className="text-lg font-bold">Bulk Stock Import</h3>
                   </div>
                   <p className="text-sm text-zinc-400">Upload an Excel file with columns: code, description, category, cost_price, selling_price, qty.</p>
@@ -3200,7 +3200,7 @@ export default function App() {
                       isDark ? "border-zinc-700" : "border-zinc-200",
                       `group-hover:${getThemeColor("border")}/50`
                     )}>
-                      <Download className="mx-auto mb-4 text-zinc-500" size={32} />
+                      <Download className="mx-auto mb-4 text-zinc-500" size={24} />
                       <p className="text-sm font-medium">Click or drag Excel file here</p>
                     </div>
                   </div>
@@ -3209,7 +3209,7 @@ export default function App() {
                 {/* Settings */}
                 <div className={cn("p-8 rounded-3xl border space-y-6 transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                   <div className={cn("flex items-center gap-3", getThemeColor("text"))}>
-                    <Settings size={24} />
+                    <Settings size={18} />
                     <h3 className="text-lg font-bold">System Settings</h3>
                   </div>
                   <div className="space-y-4">
@@ -3317,7 +3317,7 @@ export default function App() {
                 <div className="flex justify-between items-center">
                   <h3 className="text-2xl font-bold">Exchange Product</h3>
                   <button onClick={() => { setShowExchangeModal(false); setBillNumberInput(""); setFoundBillSales([]); }} className="text-zinc-500 hover:text-red-500">
-                    <X size={24} />
+                    <X size={18} />
                   </button>
                 </div>
                 <p className="text-zinc-500 text-sm">Enter the bill number to start an exchange. Only valid for sales within the last 3 days.</p>
@@ -3398,7 +3398,7 @@ export default function App() {
                 <div className="flex justify-between items-center">
                   <h3 className="text-2xl font-bold">Return Product</h3>
                   <button onClick={() => { setShowReturnModal(false); setBillNumberInput(""); setFoundBillSales([]); }} className="text-zinc-500 hover:text-red-500">
-                    <X size={24} />
+                    <X size={18} />
                   </button>
                 </div>
                 <p className="text-zinc-500 text-sm">Enter the bill number to return items to stock. Only valid for sales within the last 3 days.</p>
@@ -3484,10 +3484,10 @@ export default function App() {
                       className="bg-emerald-500/10 text-emerald-500 p-2 rounded-lg hover:bg-emerald-500/20 transition-all"
                       title="Share to WhatsApp"
                     >
-                      <Share2 size={20} />
+                      <Share2 size={16} />
                     </button>
                     <button onClick={() => setShowPreviewModal(false)} className="text-zinc-500 hover:text-red-500 p-2 transition-colors">
-                      <X size={24} />
+                      <X size={18} />
                     </button>
                   </div>
                 </div>
@@ -3592,7 +3592,7 @@ export default function App() {
                       </div>
                       {billQrData && (
                         <div className="flex justify-center">
-                          <QRCodeSVG value={billQrData} size={80} />
+                          <QRCodeSVG value={billQrData} size={64} />
                         </div>
                       )}
                     </div>
