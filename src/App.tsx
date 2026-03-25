@@ -61,6 +61,7 @@ interface Member {
   phone: string;
   name: string;
   points: number;
+  total_points: number;
   created_at?: string;
 }
 
@@ -166,7 +167,7 @@ const SplashScreen = ({ onComplete, shopName, appLogo }: { onComplete: () => voi
             className="w-24 h-24 bg-emerald-500 rounded-3xl flex items-center justify-center mb-6 shadow-2xl shadow-emerald-500/20"
             variants={itemVariants}
           >
-            <ShoppingCart className="text-white" size={32} />
+            <ShoppingCart className="text-white" size={18} />
           </motion.div>
         )}
         
@@ -355,7 +356,7 @@ const PaymentModal = ({
         <div className="p-6 border-b flex justify-between items-center">
           <h3 className="text-xl font-bold">Payment Details</h3>
           <button onClick={onClose} className="text-zinc-500 hover:text-red-400">
-            <X size={18} />
+            <X size={14} />
           </button>
         </div>
 
@@ -461,7 +462,7 @@ const PaymentModal = ({
                       <div className="flex items-center gap-3">
                         <span className="text-sm">{p.amount.toFixed(2)}</span>
                         <button onClick={() => removePayment(i)} className="text-red-400 hover:text-red-300">
-                          <Trash2 size={10} />
+                          <Trash2 size={8} />
                         </button>
                       </div>
                     </div>
@@ -584,7 +585,7 @@ const Login = ({ onLogin, shopName, appLogo, getThemeColor }: { onLogin: (role: 
 
           {error && (
             <div className="flex items-center gap-2 text-red-400 text-sm bg-red-400/10 p-3 rounded-lg border border-red-400/20">
-              <AlertCircle size={12} />
+              <AlertCircle size={10} />
               {error}
             </div>
           )}
@@ -974,6 +975,8 @@ export default function App() {
   const cartTotal = cart.reduce((sum, item) => sum + (item.selling_price * item.cartQty), 0);
   const [customDiscount, setCustomDiscount] = useState(0);
   const [redeemPoints, setRedeemPoints] = useState(0);
+  const [showRedeemModal, setShowRedeemModal] = useState(false);
+  const [redeemInput, setRedeemInput] = useState("");
 
   // Preview Bill State
   const [previewBillData, setPreviewBillData] = useState<{
@@ -991,7 +994,7 @@ export default function App() {
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const previewBillRef = useRef<HTMLDivElement>(null);
 
-  const totalDiscount = customDiscount + (redeemPoints);
+  const totalDiscount = customDiscount + (redeemPoints / 2);
   const finalTotal = cartTotal - totalDiscount;
 
   const [memberSearch, setMemberSearch] = useState("");
@@ -1340,6 +1343,11 @@ export default function App() {
     const { phone, name } = newMemberData;
     if (!phone || !name) return;
 
+    if (phone.length !== 11 || !phone.startsWith("01")) {
+      showNotification("Phone number must be 11 digits and start with 01", "error");
+      return;
+    }
+
     const res = await fetch("/api/members", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1507,11 +1515,44 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // If register modal is open, allow normal keyboard behavior
+      if (showRegisterModal) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setShowRegisterModal(false);
+        }
+        return;
+      }
+
       if (activeTab !== "pos") return;
 
-      // Esc: Focus product search
+      // Esc: Close modals or focus product search
       if (e.key === "Escape") {
         e.preventDefault();
+        if (showSuccessModal) {
+          setShowSuccessModal(false);
+          return;
+        }
+        if (showErrorModal) {
+          setShowErrorModal(false);
+          return;
+        }
+        if (showPaymentModal) {
+          setShowPaymentModal(false);
+          return;
+        }
+        if (showExchangeModal) {
+          setShowExchangeModal(false);
+          return;
+        }
+        if (showReturnModal) {
+          setShowReturnModal(false);
+          return;
+        }
+        if (showRedeemModal) {
+          setShowRedeemModal(false);
+          return;
+        }
         productSearchRef.current?.focus();
         setProductSearch("");
         setSelectedProductIndex(-1);
@@ -1526,6 +1567,7 @@ export default function App() {
       // Shift + C: New member modal
       if (e.shiftKey && e.key.toLowerCase() === "c") {
         e.preventDefault();
+        setNewMemberData({ ...newMemberData, phone: memberSearch });
         setShowRegisterModal(true);
       }
 
@@ -1620,11 +1662,25 @@ export default function App() {
         e.preventDefault();
         setShowReturnModal(true);
       }
+
+      // Alt + X: Clear membership
+      if (e.altKey && e.key.toLowerCase() === "x") {
+        e.preventDefault();
+        setMember(null);
+        setMemberSearch("");
+        setRedeemPoints(0);
+        showNotification("Membership cleared", "info");
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeTab, productSearch, filteredProducts, selectedProductIndex, cart, selectedCartIndex, lastF2PressTime, showPaymentModal, showSuccessModal, showErrorModal]);
+  }, [activeTab, productSearch, filteredProducts, selectedProductIndex, cart, selectedCartIndex, lastF2PressTime, showPaymentModal, showSuccessModal, showErrorModal, showRegisterModal, showExchangeModal, showReturnModal, showRedeemModal, memberSearch, newMemberData]);
+
+  const isNewMemberGlow = memberSearch.length === 11 && 
+                         memberSearch.startsWith("01") && 
+                         !allMembers.some(m => m.phone === memberSearch) && 
+                         !member;
 
   if (showSplash) {
     return (
@@ -1675,7 +1731,7 @@ export default function App() {
                   : "bg-red-500/10 border-red-500/20 text-red-500"
             )}
           >
-            {notification.type === "success" ? <CheckCircle2 size={16} /> : notification.type === "info" ? <Info size={16} /> : <AlertCircle size={16} />}
+            {notification.type === "success" ? <CheckCircle2 size={12} /> : notification.type === "info" ? <Info size={12} /> : <AlertCircle size={12} />}
             <span className="font-bold text-sm">{notification.message}</span>
           </motion.div>
         )}
@@ -1697,7 +1753,7 @@ export default function App() {
           onClick={() => setIsMobileMenuOpen(true)}
           className={cn("p-2 rounded-lg", isDark ? "hover:bg-zinc-800" : "hover:bg-zinc-100")}
         >
-          <Menu size={18} />
+          <Menu size={14} />
         </button>
       </div>
 
@@ -1734,7 +1790,7 @@ export default function App() {
                   onClick={() => setIsMobileMenuOpen(false)}
                   className={cn("p-2 rounded-lg", isDark ? "hover:bg-zinc-800" : "hover:bg-zinc-100")}
                 >
-                  <X size={18} />
+                  <X size={14} />
                 </button>
               </div>
 
@@ -1748,7 +1804,7 @@ export default function App() {
                       : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
                   )}
                 >
-                  <ShoppingCart size={16} /> POS
+                  <ShoppingCart size={12} /> POS
                 </button>
 
                 {(role === "admin" || role === "dev") && (
@@ -1762,7 +1818,7 @@ export default function App() {
                           : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
                       )}
                     >
-                      <Package size={16} /> Inventory
+                      <Package size={12} /> Inventory
                     </button>
                     <button 
                       onClick={() => { setActiveTab("members"); setIsMobileMenuOpen(false); }}
@@ -1773,7 +1829,7 @@ export default function App() {
                           : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
                       )}
                     >
-                      <Users size={16} /> Members
+                      <Users size={12} /> Members
                     </button>
                     <button 
                       onClick={() => { setActiveTab("reports"); setIsMobileMenuOpen(false); }}
@@ -1784,7 +1840,7 @@ export default function App() {
                           : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
                       )}
                     >
-                      <LayoutDashboard size={16} /> Sales Report
+                      <LayoutDashboard size={12} /> Sales Report
                     </button>
                   </>
                 )}
@@ -1798,7 +1854,7 @@ export default function App() {
                       : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
                   )}
                 >
-                  <RotateCcw size={16} /> History
+                  <RotateCcw size={12} /> History
                 </button>
 
                 <button 
@@ -1810,7 +1866,7 @@ export default function App() {
                       : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
                   )}
                 >
-                  <Info size={16} /> About
+                  <Info size={12} /> About
                 </button>
 
                 {role === "dev" && (
@@ -1823,7 +1879,7 @@ export default function App() {
                         : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100")
                     )}
                   >
-                    <Settings size={16} /> Dev Options
+                    <Settings size={12} /> Dev Options
                   </button>
                 )}
               </div>
@@ -1836,14 +1892,14 @@ export default function App() {
                     isDark ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700" : "bg-zinc-100 border-zinc-200 text-zinc-600 hover:bg-zinc-200"
                   )}
                 >
-                  {isDark ? <Sun size={16} /> : <Moon size={16} />}
+                  {isDark ? <Sun size={12} /> : <Moon size={12} />}
                   <span>{isDark ? "Light Mode" : "Dark Mode"}</span>
                 </button>
                 <button 
                   onClick={handleLogout}
                   className="flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:bg-red-400/10 w-full transition-all"
                 >
-                  <LogOut size={16} /> Logout
+                  <LogOut size={12} /> Logout
                 </button>
               </div>
             </motion.nav>
@@ -1897,7 +1953,7 @@ export default function App() {
             )}
             title={!isSidebarOpen ? (isDark ? "Light Mode" : "Dark Mode") : ""}
           >
-            <span className="shrink-0">{isDark ? <Sun size={16} /> : <Moon size={16} />}</span>
+            <span className="shrink-0">{isDark ? <Sun size={12} /> : <Moon size={12} />}</span>
             {isSidebarOpen && <span className="truncate">{isDark ? "Light Mode" : "Dark Mode"}</span>}
           </button>
         </div>
@@ -1913,7 +1969,7 @@ export default function App() {
           )}
           title={!isSidebarOpen ? "POS" : ""}
         >
-          <ShoppingCart size={16} className="shrink-0" />
+          <ShoppingCart size={12} className="shrink-0" />
           {isSidebarOpen && <span className="truncate">POS</span>}
         </button>
 
@@ -1930,7 +1986,7 @@ export default function App() {
               )}
               title={!isSidebarOpen ? "Inventory" : ""}
             >
-              <Package size={16} className="shrink-0" />
+              <Package size={12} className="shrink-0" />
               {isSidebarOpen && <span className="truncate">Inventory</span>}
             </button>
             <button 
@@ -1944,7 +2000,7 @@ export default function App() {
               )}
               title={!isSidebarOpen ? "Members" : ""}
             >
-              <Users size={16} className="shrink-0" />
+              <Users size={12} className="shrink-0" />
               {isSidebarOpen && <span className="truncate">Members</span>}
             </button>
             <button 
@@ -1958,7 +2014,7 @@ export default function App() {
               )}
               title={!isSidebarOpen ? "Sales Report" : ""}
             >
-              <LayoutDashboard size={16} className="shrink-0" />
+              <LayoutDashboard size={12} className="shrink-0" />
               {isSidebarOpen && <span className="truncate">Sales Report</span>}
             </button>
           </>
@@ -1975,7 +2031,7 @@ export default function App() {
           )}
           title={!isSidebarOpen ? "History" : ""}
         >
-          <RotateCcw size={16} className="shrink-0" />
+          <RotateCcw size={12} className="shrink-0" />
           {isSidebarOpen && <span className="truncate">History</span>}
         </button>
 
@@ -1990,7 +2046,7 @@ export default function App() {
           )}
           title={!isSidebarOpen ? "About" : ""}
         >
-          <Info size={16} className="shrink-0" />
+          <Info size={12} className="shrink-0" />
           {isSidebarOpen && <span className="truncate">About</span>}
         </button>
 
@@ -2006,7 +2062,7 @@ export default function App() {
             )}
             title={!isSidebarOpen ? "Dev Options" : ""}
           >
-            <Settings size={16} className="shrink-0" />
+            <Settings size={12} className="shrink-0" />
             {isSidebarOpen && <span className="truncate">Dev Options</span>}
           </button>
         )}
@@ -2020,7 +2076,7 @@ export default function App() {
             )}
             title={!isSidebarOpen ? "Logout" : ""}
           >
-            <LogOut size={16} className="shrink-0" />
+            <LogOut size={12} className="shrink-0" />
             {isSidebarOpen && <span className="truncate">Logout</span>}
           </button>
         </div>
@@ -2049,7 +2105,7 @@ export default function App() {
                     "flex items-center gap-4 p-3 rounded-2xl border transition-colors w-full",
                     isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
                   )}>
-                    <Search className="text-zinc-500" size={16} />
+                    <Search className="text-zinc-500" size={12} />
                     <input 
                       ref={productSearchRef}
                       type="text" 
@@ -2121,7 +2177,7 @@ export default function App() {
                         {cart.length === 0 ? (
                           <tr>
                             <td colSpan={5} className="px-6 py-20 text-center text-zinc-500">
-                              <ShoppingCart size={32} className="mx-auto mb-4 opacity-20" />
+                              <ShoppingCart size={18} className="mx-auto mb-4 opacity-20" />
                               <p>No items in cart. Use search to add products.</p>
                             </td>
                           </tr>
@@ -2197,7 +2253,7 @@ export default function App() {
                                   }} 
                                   className="text-zinc-500 hover:text-red-400"
                                 >
-                                  <Trash2 size={14} />
+                                  <Trash2 size={10} />
                                 </button>
                               </td>
                             </tr>
@@ -2221,7 +2277,7 @@ export default function App() {
                           : isDark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                       )}
                     >
-                      <Pause size={12} />
+                      <Pause size={10} />
                       Hold
                     </button>
                     <button 
@@ -2231,7 +2287,7 @@ export default function App() {
                         isDark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                       )}
                     >
-                      <RotateCcw size={12} />
+                      <RotateCcw size={10} />
                       Recall
                     </button>
                     <button 
@@ -2241,7 +2297,7 @@ export default function App() {
                         isDark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                       )}
                     >
-                      <ArrowLeftRight size={12} />
+                      <ArrowLeftRight size={10} />
                       Return
                     </button>
                     <button 
@@ -2251,7 +2307,7 @@ export default function App() {
                         isDark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                       )}
                     >
-                      <RefreshCw size={12} />
+                      <RefreshCw size={10} />
                       Exchange
                     </button>
                   </div>
@@ -2272,7 +2328,28 @@ export default function App() {
                             type="text" 
                             placeholder="Search Member..." 
                             value={memberSearch}
+                            maxLength={11}
                             onChange={(e) => searchMembers(e.target.value)}
+                            onKeyDown={async (e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                if (memberResults.length > 0) {
+                                  const m = memberResults[0];
+                                  setMember(m);
+                                  setShowMemberResults(false);
+                                  setMemberSearch(m.name);
+                                } else if (memberSearch.length === 11) {
+                                  const res = await fetch(`/api/members/search?query=${memberSearch}`);
+                                  const data = await res.json();
+                                  if (data.length > 0) {
+                                    const m = data[0];
+                                    setMember(m);
+                                    setShowMemberResults(false);
+                                    setMemberSearch(m.name);
+                                  }
+                                }
+                              }
+                            }}
                             className={cn(
                               "w-full border rounded-xl px-4 py-2 text-sm",
                               isDark ? "bg-zinc-800 border-zinc-700" : "bg-white border-zinc-200"
@@ -2304,8 +2381,16 @@ export default function App() {
                           )}
                         </div>
                         <button 
-                          onClick={() => setShowRegisterModal(true)}
-                          className={cn("px-4 rounded-xl text-xs font-bold uppercase", getThemeColor("bg"), "text-white")}
+                          onClick={() => {
+                            setNewMemberData({ ...newMemberData, phone: memberSearch });
+                            setShowRegisterModal(true);
+                          }}
+                          className={cn(
+                            "px-4 rounded-xl text-xs font-bold uppercase transition-all", 
+                            getThemeColor("bg"), 
+                            "text-white",
+                            isNewMemberGlow && "animate-member-glow ring-2 ring-white/20"
+                          )}
                         >
                           New
                         </button>
@@ -2319,12 +2404,8 @@ export default function App() {
                           <div className="flex gap-2">
                             <button 
                               onClick={() => {
-                                const pts = Number(prompt(`Redeem points? (Min: 2, Max: ${Math.min(member.points, Math.floor(cartTotal))})`, "0"));
-                                if (pts === 0) setRedeemPoints(0);
-                                else if (pts < 2) showNotification("Minimum redemption is 2 points", "error");
-                                else if (pts > member.points) showNotification("Insufficient points", "error");
-                                else if (pts > cartTotal) showNotification("Redemption cannot exceed bill total", "error");
-                                else setRedeemPoints(pts);
+                                setRedeemInput("");
+                                setShowRedeemModal(true);
                               }}
                               className={cn("text-xs text-white px-3 py-1.5 rounded-lg", getThemeColor("bg"))}
                             >
@@ -2423,7 +2504,7 @@ export default function App() {
                       )}
                     >
                       <div className="w-20 h-20 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mx-auto">
-                        <CheckCircle2 size={32} />
+                        <CheckCircle2 size={18} />
                       </div>
                       <div className="space-y-2">
                         <h3 className="text-2xl font-bold">Sale Completed!</h3>
@@ -2486,7 +2567,7 @@ export default function App() {
                       )}
                     >
                       <div className="w-20 h-20 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mx-auto">
-                        <AlertCircle size={32} />
+                        <AlertCircle size={18} />
                       </div>
                       <div className="space-y-2">
                         <h3 className="text-2xl font-bold text-red-500">Checkout Error</h3>
@@ -2517,7 +2598,7 @@ export default function App() {
               <div className="p-6 border-b border-zinc-800 flex justify-between items-center">
                 <h3 className="text-xl font-bold">Register New Member</h3>
                 <button onClick={() => setShowRegisterModal(false)} className="text-zinc-500 hover:text-white">
-                  <X size={18} />
+                  <X size={14} />
                 </button>
               </div>
               <form onSubmit={registerMember} className="p-6 space-y-4">
@@ -2528,7 +2609,9 @@ export default function App() {
                     required
                     placeholder="e.g. 01700000000"
                     value={newMemberData.phone}
+                    maxLength={11}
                     onChange={e => setNewMemberData({...newMemberData, phone: e.target.value})}
+                    autoFocus={!newMemberData.phone}
                     className={cn(
                       "w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 outline-none transition-all",
                       getThemeColor("border").replace("border-", "focus:border-")
@@ -2543,6 +2626,7 @@ export default function App() {
                     placeholder="e.g. John Doe"
                     value={newMemberData.name}
                     onChange={e => setNewMemberData({...newMemberData, name: e.target.value})}
+                    autoFocus={!!newMemberData.phone}
                     className={cn(
                       "w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 outline-none transition-all",
                       getThemeColor("border").replace("border-", "focus:border-")
@@ -2638,7 +2722,7 @@ export default function App() {
                     "flex items-center gap-2 px-4 py-2 rounded-xl border w-full sm:w-64 transition-colors",
                     isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
                   )}>
-                    <Search size={14} className="text-zinc-500" />
+                    <Search size={10} className="text-zinc-500" />
                     <input 
                       type="text" 
                       placeholder="Search by code, name, category..." 
@@ -2654,14 +2738,14 @@ export default function App() {
                       isDark ? "bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700" : "bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-50 shadow-sm"
                     )}
                   >
-                    <Download size={14} /> Download Inventory
+                    <Download size={10} /> Download Inventory
                   </button>
                   {(role === "admin" || role === "dev") && (
                     <button 
                       onClick={() => setActiveTab("add-product")}
                       className={cn("text-white px-4 py-2 rounded-xl flex items-center justify-center gap-2 whitespace-nowrap", getThemeColor("bg"))}
                     >
-                      <Plus size={16} /> Add Product
+                      <Plus size={12} /> Add Product
                     </button>
                   )}
                 </div>
@@ -2677,7 +2761,7 @@ export default function App() {
                 ].map((stat, i) => (
                   <div key={i} className={cn("p-6 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                     <div className="flex items-center gap-3 mb-2">
-                      <stat.icon size={14} className="text-zinc-500" />
+                      <stat.icon size={10} className="text-zinc-500" />
                       <div className="text-zinc-500 text-xs uppercase tracking-wider">{stat.label}</div>
                     </div>
                     <div className={cn("text-2xl font-bold", i === 3 ? getThemeColor("text") : "")}>{stat.value}</div>
@@ -2829,7 +2913,7 @@ export default function App() {
                     "flex items-center gap-2 px-4 py-2 rounded-xl border w-full sm:w-64 transition-colors",
                     isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
                   )}>
-                    <Search size={14} className="text-zinc-500" />
+                    <Search size={10} className="text-zinc-500" />
                     <input 
                       type="text" 
                       placeholder="Search by name or phone..." 
@@ -2842,7 +2926,7 @@ export default function App() {
                     onClick={() => setShowRegisterModal(true)}
                     className={cn("text-white px-4 py-2 rounded-xl flex items-center justify-center gap-2 whitespace-nowrap", getThemeColor("bg"))}
                   >
-                    <Plus size={16} /> Register Member
+                    <Plus size={12} /> Register Member
                   </button>
                 </div>
               </div>
@@ -2908,7 +2992,7 @@ export default function App() {
                     "flex items-center gap-2 px-4 py-2 rounded-xl border w-full sm:w-64 transition-colors",
                     isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
                   )}>
-                    <Search size={14} className="text-zinc-500" />
+                    <Search size={10} className="text-zinc-500" />
                     <input 
                       type="text" 
                       placeholder="Search by product, code, ID..." 
@@ -2924,13 +3008,13 @@ export default function App() {
                       isDark ? "bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700" : "bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-50 shadow-sm"
                     )}
                   >
-                    <Download size={14} /> Download Report
+                    <Download size={10} /> Download Report
                   </button>
                   <div className={cn(
                     "flex items-center gap-2 p-2 rounded-2xl border transition-colors",
                     isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
                   )}>
-                    <Calendar size={14} className="text-zinc-500 ml-2" />
+                    <Calendar size={10} className="text-zinc-500 ml-2" />
                     <input 
                       type="date" 
                       value={dateRange.start}
@@ -3042,7 +3126,7 @@ export default function App() {
                   onClick={fetchAuditLogs}
                   className={cn("p-2 rounded-xl transition-all", isDark ? "bg-zinc-800 hover:bg-zinc-700" : "bg-white border border-zinc-200 hover:bg-zinc-50 shadow-sm")}
                 >
-                  <RefreshCw size={16} />
+                  <RefreshCw size={12} />
                 </button>
               </div>
 
@@ -3106,7 +3190,7 @@ export default function App() {
               <div className="grid gap-6">
                 <section className={cn("p-8 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                   <h3 className={cn("text-xl font-bold mb-4 flex items-center gap-2", getThemeColor("text"))}>
-                    <ShoppingCart size={18} /> POS (Point of Sale)
+                    <ShoppingCart size={14} /> POS (Point of Sale)
                   </h3>
                   <p className="text-sm leading-relaxed text-zinc-400">
                     The POS tab is where you process sales. You can search for products by their code or description. 
@@ -3117,7 +3201,7 @@ export default function App() {
 
                 <section className={cn("p-8 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                   <h3 className={cn("text-xl font-bold mb-4 flex items-center gap-2", getThemeColor("text"))}>
-                    <Package size={18} /> Inventory Management
+                    <Package size={14} /> Inventory Management
                   </h3>
                   <p className="text-sm leading-relaxed text-zinc-400">
                     Manage your stock here. You can view total stock statistics, SKU counts, and total values. 
@@ -3128,7 +3212,7 @@ export default function App() {
 
                 <section className={cn("p-8 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                   <h3 className={cn("text-xl font-bold mb-4 flex items-center gap-2", getThemeColor("text"))}>
-                    <Users size={18} /> Membership Directory
+                    <Users size={14} /> Membership Directory
                   </h3>
                   <p className="text-sm leading-relaxed text-zinc-400">
                     Register and manage your customers. Members earn points on every purchase (1 point per 100 Taka). 
@@ -3139,7 +3223,7 @@ export default function App() {
 
                 <section className={cn("p-8 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                   <h3 className={cn("text-xl font-bold mb-4 flex items-center gap-2", getThemeColor("text"))}>
-                    <LayoutDashboard size={18} /> Sales Reports
+                    <LayoutDashboard size={14} /> Sales Reports
                   </h3>
                   <p className="text-sm leading-relaxed text-zinc-400">
                     Analyze your business performance. Filter sales by date range, view total revenue, and see which items are selling best. 
@@ -3149,7 +3233,7 @@ export default function App() {
 
                 <section className={cn("p-8 rounded-3xl border transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                   <h3 className={cn("text-xl font-bold mb-4 flex items-center gap-2", getThemeColor("text"))}>
-                    <Settings size={18} /> Dev Options & Settings
+                    <Settings size={14} /> Dev Options & Settings
                   </h3>
                   <p className="text-sm leading-relaxed text-zinc-400">
                     Customize your application. Change the shop name, update the logo, set your theme color, 
@@ -3184,7 +3268,7 @@ export default function App() {
                 {/* Bulk Upload */}
                 <div className={cn("p-8 rounded-3xl border space-y-6 transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                   <div className={cn("flex items-center gap-3", getThemeColor("text"))}>
-                    <Upload size={18} />
+                    <Upload size={14} />
                     <h3 className="text-lg font-bold">Bulk Stock Import</h3>
                   </div>
                   <p className="text-sm text-zinc-400">Upload an Excel file with columns: code, description, category, cost_price, selling_price, qty.</p>
@@ -3200,7 +3284,7 @@ export default function App() {
                       isDark ? "border-zinc-700" : "border-zinc-200",
                       `group-hover:${getThemeColor("border")}/50`
                     )}>
-                      <Download className="mx-auto mb-4 text-zinc-500" size={24} />
+                      <Download className="mx-auto mb-4 text-zinc-500" size={14} />
                       <p className="text-sm font-medium">Click or drag Excel file here</p>
                     </div>
                   </div>
@@ -3209,7 +3293,7 @@ export default function App() {
                 {/* Settings */}
                 <div className={cn("p-8 rounded-3xl border space-y-6 transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                   <div className={cn("flex items-center gap-3", getThemeColor("text"))}>
-                    <Settings size={18} />
+                    <Settings size={14} />
                     <h3 className="text-lg font-bold">System Settings</h3>
                   </div>
                   <div className="space-y-4">
@@ -3317,7 +3401,7 @@ export default function App() {
                 <div className="flex justify-between items-center">
                   <h3 className="text-2xl font-bold">Exchange Product</h3>
                   <button onClick={() => { setShowExchangeModal(false); setBillNumberInput(""); setFoundBillSales([]); }} className="text-zinc-500 hover:text-red-500">
-                    <X size={18} />
+                    <X size={14} />
                   </button>
                 </div>
                 <p className="text-zinc-500 text-sm">Enter the bill number to start an exchange. Only valid for sales within the last 3 days.</p>
@@ -3398,7 +3482,7 @@ export default function App() {
                 <div className="flex justify-between items-center">
                   <h3 className="text-2xl font-bold">Return Product</h3>
                   <button onClick={() => { setShowReturnModal(false); setBillNumberInput(""); setFoundBillSales([]); }} className="text-zinc-500 hover:text-red-500">
-                    <X size={18} />
+                    <X size={14} />
                   </button>
                 </div>
                 <p className="text-zinc-500 text-sm">Enter the bill number to return items to stock. Only valid for sales within the last 3 days.</p>
@@ -3465,6 +3549,93 @@ export default function App() {
             </div>
           )}
 
+          {/* Redeem Points Modal */}
+          <AnimatePresence>
+            {showRedeemModal && member && (
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  className={cn(
+                    "border w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col transition-colors",
+                    isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"
+                  )}
+                >
+                  <div className={cn("p-6 border-b flex justify-between items-center transition-colors", isDark ? "border-zinc-800" : "border-zinc-100")}>
+                    <h3 className="text-xl font-bold">Redeem Points</h3>
+                    <button onClick={() => setShowRedeemModal(false)} className="text-zinc-500 hover:text-red-500 p-2 transition-colors">
+                      <X size={14} />
+                    </button>
+                  </div>
+                  
+                  <div className="p-6 space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className={cn("p-4 rounded-2xl border transition-colors", isDark ? "bg-zinc-800/50 border-zinc-700" : "bg-zinc-50 border-zinc-100")}>
+                        <p className="text-xs text-zinc-500 uppercase font-bold mb-1">Career Points</p>
+                        <p className="text-xl font-bold">{member.total_points || 0}</p>
+                      </div>
+                      <div className={cn("p-4 rounded-2xl border transition-colors", isDark ? "bg-zinc-800/50 border-zinc-700" : "bg-zinc-50 border-zinc-100")}>
+                        <p className="text-xs text-zinc-500 uppercase font-bold mb-1">Balance Points</p>
+                        <p className="text-xl font-bold text-emerald-500">{member.points}</p>
+                      </div>
+                    </div>
+
+                    <div className={cn("p-4 rounded-2xl border transition-colors text-center", isDark ? "bg-emerald-500/10 border-emerald-500/20" : "bg-emerald-50 border-emerald-100")}>
+                      <p className="text-xs text-emerald-600 uppercase font-bold mb-1">Balance in TK (2:1)</p>
+                      <p className="text-2xl font-bold text-emerald-600">{(member.points / 2).toFixed(2)} ৳</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold text-zinc-500 uppercase">Redeem Points Qty</label>
+                      <input 
+                        type="number"
+                        value={redeemInput}
+                        onChange={(e) => setRedeemInput(e.target.value)}
+                        placeholder="Enter points to redeem..."
+                        className={cn(
+                          "w-full px-4 py-3 rounded-xl border outline-none transition-all text-lg font-bold",
+                          isDark ? "bg-zinc-800 border-zinc-700 focus:border-emerald-500" : "bg-zinc-50 border-zinc-200 focus:border-emerald-500"
+                        )}
+                      />
+                      <p className="text-xs text-zinc-500 italic">
+                        * 1 TK discount for every 2 points.
+                      </p>
+                    </div>
+
+                    <button 
+                      onClick={() => {
+                        const pts = parseInt(redeemInput);
+                        if (isNaN(pts) || pts <= 0) {
+                          showNotification("Please enter a valid amount", "error");
+                          return;
+                        }
+                        if (pts < 2) {
+                          showNotification("Minimum redemption is 2 points", "error");
+                          return;
+                        }
+                        if (pts > member.points) {
+                          showNotification("Insufficient points", "error");
+                          return;
+                        }
+                        if (pts / 2 > cartTotal) {
+                          showNotification("Redemption cannot exceed bill total", "error");
+                          return;
+                        }
+                        setRedeemPoints(pts);
+                        setShowRedeemModal(false);
+                        showNotification(`${(pts / 2).toFixed(2)} ৳ discount applied!`, "success");
+                      }}
+                      className={cn("w-full py-4 rounded-2xl text-white font-bold uppercase shadow-lg transition-all hover:scale-[1.02] active:scale-[0.98]", getThemeColor("bg"))}
+                    >
+                      Redeem Confirm
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
           {showPreviewModal && previewBillData && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
               <motion.div 
@@ -3484,10 +3655,10 @@ export default function App() {
                       className="bg-emerald-500/10 text-emerald-500 p-2 rounded-lg hover:bg-emerald-500/20 transition-all"
                       title="Share to WhatsApp"
                     >
-                      <Share2 size={16} />
+                      <Share2 size={12} />
                     </button>
                     <button onClick={() => setShowPreviewModal(false)} className="text-zinc-500 hover:text-red-500 p-2 transition-colors">
-                      <X size={18} />
+                      <X size={14} />
                     </button>
                   </div>
                 </div>

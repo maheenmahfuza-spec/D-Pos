@@ -13,7 +13,20 @@
       opacity: 0.8;
     }
   }
+  @keyframes member-glow {
+    0%, 100% {
+      box-shadow: 0 0 5px currentColor;
+      filter: brightness(1.2);
+    }
+    50% {
+      box-shadow: 0 0 20px currentColor;
+      filter: brightness(1.5);
+    }
+  }
   .animate-hold-glow {
     animation: hold-glow 1.5s infinite;
+  }
+  .animate-member-glow {
+    animation: member-glow 1s infinite;
   }
 }

@@ -28,6 +28,7 @@ db.exec(`
     phone TEXT UNIQUE,
     name TEXT,
     points INTEGER DEFAULT 0,
+    total_points INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -90,6 +91,9 @@ try {
 } catch (e) {}
 try {
   db.exec("ALTER TABLE sales ADD COLUMN original_transaction_id TEXT");
+} catch (e) {}
+try {
+  db.exec("ALTER TABLE members ADD COLUMN total_points INTEGER DEFAULT 0");
 } catch (e) {}
 try {
   db.exec("ALTER TABLE members ADD COLUMN id INTEGER");
@@ -269,7 +273,7 @@ async function startServer() {
   app.post("/api/members", (req, res) => {
     const { phone, name } = req.body;
     try {
-      db.prepare("INSERT INTO members (phone, name, points) VALUES (?, ?, 0)").run(phone, name);
+      db.prepare("INSERT INTO members (phone, name, points, total_points) VALUES (?, ?, 0, 0)").run(phone, name);
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
@@ -333,10 +337,15 @@ async function startServer() {
         if (pointsEarned > 0) {
           db.prepare("INSERT INTO points_history (member_phone, change, reason) VALUES (?, ?, ?)")
             .run(member_phone, pointsEarned, "Earned from purchase");
+          
+          db.prepare("UPDATE members SET points = points + ?, total_points = total_points + ? WHERE phone = ?")
+            .run(pointsEarned, pointsEarned, member_phone);
         }
 
-        db.prepare("UPDATE members SET points = points - ? + ? WHERE phone = ?")
-          .run(points_redeemed || 0, pointsEarned, member_phone);
+        if (points_redeemed > 0) {
+          db.prepare("UPDATE members SET points = points - ? WHERE phone = ?")
+            .run(points_redeemed, member_phone);
+        }
       }
     });
 
