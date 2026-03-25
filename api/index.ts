@@ -81,7 +81,7 @@ const getGoogleTokens = () => {
 
 // Seed initial data
 const seedSettings = db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
-seedSettings.run("shop_name", "SportsStock Pro");
+seedSettings.run("shop_name", "D-POS");
 
 const seedUsers = db.prepare("INSERT OR IGNORE INTO users (role, password) VALUES (?, ?)");
 seedUsers.run("admin", "admin123");

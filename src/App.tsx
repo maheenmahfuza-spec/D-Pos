@@ -29,7 +29,8 @@ import {
   Pause,
   RotateCcw,
   ArrowLeftRight,
-  RefreshCw
+  RefreshCw,
+  Ticket
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import * as XLSX from "xlsx";
@@ -94,6 +95,18 @@ interface CartItem extends Product {
   original_transaction_id?: string;
 }
 
+interface Coupon {
+  code: string;
+  discount_type: 'percentage' | 'fixed';
+  discount_value: number;
+  min_range: number;
+  qty: number;
+  used_qty: number;
+  valid_date: string;
+  status: 'active' | 'inactive';
+  created_at?: string;
+}
+
 // --- Components ---
 
 const SplashScreen = ({ onComplete, shopName, appLogo }: { onComplete: () => void; shopName: string; appLogo: string }) => {
@@ -139,37 +152,28 @@ const SplashScreen = ({ onComplete, shopName, appLogo }: { onComplete: () => voi
       variants={containerVariants}
       className="fixed inset-0 z-[9999] bg-zinc-950 flex flex-col items-center justify-center overflow-hidden"
     >
-      {/* Animated Background Boxes */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
-        <div className="grid grid-cols-4 gap-4">
-          {[...Array(16)].map((_, i) => (
-            <motion.div
-              key={i}
-              variants={boxVariants}
-              className="w-16 h-16 bg-emerald-500/20 rounded-xl border border-emerald-500/30"
-            />
-          ))}
-        </div>
-      </div>
-
       <motion.div variants={itemVariants} className="relative z-10 flex flex-col items-center">
-        {appLogo ? (
-          <motion.img 
-            src={appLogo} 
-            alt="Logo" 
-            className="h-24 mb-6 object-contain"
-            initial={{ rotate: -10 }}
-            animate={{ rotate: 0 }}
-            transition={{ duration: 0.5 }}
-          />
-        ) : (
-          <motion.div 
-            className="w-24 h-24 bg-emerald-500 rounded-3xl flex items-center justify-center mb-6 shadow-2xl shadow-emerald-500/20"
-            variants={itemVariants}
-          >
-            <ShoppingCart className="text-white" size={18} />
-          </motion.div>
-        )}
+        <motion.div 
+          className="flex gap-3 mb-12"
+          variants={containerVariants}
+        >
+          {"WELCOME".split('').map((char, i) => (
+            <motion.span
+              key={i}
+              initial={{ opacity: 0, scale: 0, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ 
+                delay: i * 0.1,
+                type: "spring",
+                stiffness: 260,
+                damping: 20
+              }}
+              className="text-5xl md:text-8xl font-black text-emerald-500 drop-shadow-[0_0_20px_rgba(16,185,129,0.4)]"
+            >
+              {char}
+            </motion.span>
+          ))}
+        </motion.div>
         
         <motion.h1 
           variants={itemVariants}
@@ -374,13 +378,14 @@ const PaymentModal = ({
                       key={t}
                       onClick={() => setSelectedType(t)}
                       className={cn(
-                        "py-2 rounded-lg text-xs font-bold transition-all",
+                        "py-2 rounded-lg text-xs font-bold transition-all relative group",
                         selectedType === t 
                           ? cn(getThemeColor("bg"), "text-white") 
                           : isDark ? "bg-zinc-800 text-zinc-400" : "bg-zinc-100 text-zinc-600"
                       )}
                     >
                       {t}
+                      <span className="absolute -top-1 -right-1 text-[8px] font-bold px-1 rounded bg-black/40 text-white/70 opacity-0 group-hover:opacity-100 transition-opacity">F5</span>
                     </button>
                   ))}
                 </div>
@@ -411,9 +416,10 @@ const PaymentModal = ({
                   />
                   <button
                     onClick={addPayment}
-                    className={cn("px-4 py-2 rounded-lg text-white font-bold", getThemeColor("bg"))}
+                    className={cn("px-4 py-2 rounded-lg text-white font-bold relative", getThemeColor("bg"))}
                   >
                     Add
+                    <span className="absolute -top-1 -right-1 text-[8px] font-bold px-1 rounded bg-black/40 text-white/70">↵</span>
                   </button>
                 </div>
                 
@@ -494,11 +500,12 @@ const PaymentModal = ({
             onClick={() => onSave(currentPayments)}
             disabled={paidTotal < absTotal - 0.01}
             className={cn(
-              "flex-1 py-3 rounded-xl text-white font-bold disabled:opacity-50",
+              "flex-1 py-3 rounded-xl text-white font-bold disabled:opacity-50 relative",
               getThemeColor("bg")
             )}
           >
             {isRefund ? "Complete Refund" : "Save & Complete"}
+            <span className="absolute -top-1 -right-1 text-[8px] font-bold px-1 rounded bg-black/40 text-white/70">↵</span>
           </button>
         </div>
       </motion.div>
@@ -753,6 +760,215 @@ const Bill = ({
   );
 };
 
+const CouponManagement = ({ onClose, isDark, getThemeColor, showNotification }: { 
+  onClose: () => void; 
+  isDark: boolean; 
+  getThemeColor: (t: any) => string;
+  showNotification: (msg: string, type: "success" | "error") => void;
+}) => {
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [newCoupon, setNewCoupon] = useState({
+    code: "",
+    discount_type: "percentage" as "percentage" | "fixed",
+    discount_value: 0,
+    min_range: 0,
+    qty: 0,
+    valid_date: format(new Date(), "yyyy-MM-dd")
+  });
+
+  const fetchCoupons = async () => {
+    try {
+      const res = await fetch("/api/coupons");
+      const data = await res.json();
+      setCoupons(data);
+    } catch (err) {
+      console.error("Failed to fetch coupons:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchCoupons();
+  }, []);
+
+  const handleCreate = async () => {
+    if (newCoupon.code.length !== 6 || !/^\d+$/.test(newCoupon.code)) {
+      showNotification("Coupon code must be exactly 6 digits", "error");
+      return;
+    }
+    if (newCoupon.discount_value <= 0) {
+      showNotification("Discount value must be greater than 0", "error");
+      return;
+    }
+    if (newCoupon.qty <= 0) {
+      showNotification("Quantity must be greater than 0", "error");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/coupons", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newCoupon)
+      });
+      if (res.ok) {
+        showNotification("Coupon created successfully", "success");
+        fetchCoupons();
+        setNewCoupon({
+          code: "",
+          discount_type: "percentage",
+          discount_value: 0,
+          min_range: 0,
+          qty: 0,
+          valid_date: format(new Date(), "yyyy-MM-dd")
+        });
+      } else {
+        const err = await res.json();
+        showNotification(err.message || "Failed to create coupon", "error");
+      }
+    } catch (err) {
+      showNotification("Network error", "error");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className={cn(
+          "w-full max-w-4xl rounded-3xl overflow-hidden shadow-2xl border flex flex-col max-h-[90vh]",
+          isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"
+        )}
+      >
+        <div className="p-6 border-b flex justify-between items-center">
+          <h3 className="text-xl font-bold">Coupon Management</h3>
+          <button onClick={onClose} className="text-zinc-500 hover:text-red-400">
+            <X size={14} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-auto p-6 space-y-8">
+          {/* Create Coupon Form */}
+          <div className="space-y-4">
+            <h4 className="text-sm font-bold uppercase tracking-wider text-zinc-500">Create New Coupon</h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-[10px] text-zinc-500 uppercase mb-1">Coupon Code (6 Digits)</label>
+                <input 
+                  type="text" 
+                  maxLength={6}
+                  value={newCoupon.code}
+                  onChange={e => setNewCoupon({ ...newCoupon, code: e.target.value.replace(/\D/g, '') })}
+                  className={cn("w-full border rounded-xl px-4 py-2 text-sm", isDark ? "bg-zinc-800 border-zinc-700" : "bg-zinc-50 border-zinc-200")}
+                  placeholder="e.g. 123456"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-zinc-500 uppercase mb-1">Discount Type</label>
+                <select 
+                  value={newCoupon.discount_type}
+                  onChange={e => setNewCoupon({ ...newCoupon, discount_type: e.target.value as any })}
+                  className={cn("w-full border rounded-xl px-4 py-2 text-sm", isDark ? "bg-zinc-800 border-zinc-700" : "bg-zinc-50 border-zinc-200")}
+                >
+                  <option value="percentage">Percentage (%)</option>
+                  <option value="fixed">TK Off (Fixed)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] text-zinc-500 uppercase mb-1">Discount Value</label>
+                <input 
+                  type="number" 
+                  value={newCoupon.discount_value}
+                  onChange={e => setNewCoupon({ ...newCoupon, discount_value: Number(e.target.value) })}
+                  className={cn("w-full border rounded-xl px-4 py-2 text-sm", isDark ? "bg-zinc-800 border-zinc-700" : "bg-zinc-50 border-zinc-200")}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-zinc-500 uppercase mb-1">Min Shopping Range (TK)</label>
+                <input 
+                  type="number" 
+                  value={newCoupon.min_range}
+                  onChange={e => setNewCoupon({ ...newCoupon, min_range: Number(e.target.value) })}
+                  className={cn("w-full border rounded-xl px-4 py-2 text-sm", isDark ? "bg-zinc-800 border-zinc-700" : "bg-zinc-50 border-zinc-200")}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-zinc-500 uppercase mb-1">Quantity</label>
+                <input 
+                  type="number" 
+                  value={newCoupon.qty}
+                  onChange={e => setNewCoupon({ ...newCoupon, qty: Number(e.target.value) })}
+                  className={cn("w-full border rounded-xl px-4 py-2 text-sm", isDark ? "bg-zinc-800 border-zinc-700" : "bg-zinc-50 border-zinc-200")}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-zinc-500 uppercase mb-1">Valid Until</label>
+                <input 
+                  type="date" 
+                  value={newCoupon.valid_date}
+                  onChange={e => setNewCoupon({ ...newCoupon, valid_date: e.target.value })}
+                  className={cn("w-full border rounded-xl px-4 py-2 text-sm", isDark ? "bg-zinc-800 border-zinc-700" : "bg-zinc-50 border-zinc-200")}
+                />
+              </div>
+            </div>
+            <button 
+              onClick={handleCreate}
+              className={cn("w-full py-3 rounded-xl text-white font-bold", getThemeColor("bg"))}
+            >
+              Create Coupon
+            </button>
+          </div>
+
+          {/* Active Coupons List */}
+          <div className="space-y-4">
+            <h4 className="text-sm font-bold uppercase tracking-wider text-zinc-500">Active Coupons</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-zinc-500 uppercase text-[10px]">
+                  <tr>
+                    <th className="pb-4">Code</th>
+                    <th className="pb-4">Type</th>
+                    <th className="pb-4">Value</th>
+                    <th className="pb-4">Min Range</th>
+                    <th className="pb-4">Qty (Used/Total)</th>
+                    <th className="pb-4">Expiry</th>
+                    <th className="pb-4">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800">
+                  {coupons.map(c => (
+                    <tr key={c.code} className="hover:bg-zinc-800/30 transition-colors">
+                      <td className="py-4 font-mono font-bold">{c.code}</td>
+                      <td className="py-4 capitalize">{c.discount_type}</td>
+                      <td className="py-4 font-bold">{c.discount_value}{c.discount_type === 'percentage' ? '%' : ' ৳'}</td>
+                      <td className="py-4">{c.min_range} ৳</td>
+                      <td className="py-4">{c.used_qty} / {c.qty}</td>
+                      <td className="py-4">{format(new Date(c.valid_date), "dd MMM yyyy")}</td>
+                      <td className="py-4">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase",
+                          c.status === 'active' ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"
+                        )}>
+                          {c.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {coupons.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-zinc-500 italic">No coupons found</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [role, setRole] = useState<Role>(null);
@@ -760,7 +976,7 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [member, setMember] = useState<Member | null>(null);
-  const [shopName, setShopName] = useState("SportsStock Pro");
+  const [shopName, setShopName] = useState("D-POS");
   const [sales, setSales] = useState<Sale[]>([]);
   const [dateRange, setDateRange] = useState({ 
     start: format(new Date(), "yyyy-MM-dd"), 
@@ -978,6 +1194,59 @@ export default function App() {
   const [showRedeemModal, setShowRedeemModal] = useState(false);
   const [redeemInput, setRedeemInput] = useState("");
 
+  // Coupon State
+  const [couponCode, setCouponCode] = useState("");
+  const [couponDiscount, setCouponDiscount] = useState(0);
+  const [couponError, setCouponError] = useState("");
+  const [couponApplied, setCouponApplied] = useState(false);
+  const [showCouponManagement, setShowCouponManagement] = useState(false);
+
+  const applyCoupon = async (code: string) => {
+    if (code.length !== 6) {
+      setCouponError("Coupon must be 6 digits");
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/coupons/validate/${code}`);
+      const data = await res.json();
+      
+      if (res.ok) {
+        const coupon = data.coupon;
+        
+        if (cartTotal < coupon.min_range) {
+          setCouponError(`Min shopping for this coupon is ${coupon.min_range} ৳`);
+          return;
+        }
+
+        let discount = 0;
+        if (coupon.discount_type === "percentage") {
+          discount = (cartTotal * coupon.discount_value) / 100;
+        } else {
+          discount = coupon.discount_value;
+        }
+        
+        setCouponDiscount(discount);
+        setCouponApplied(true);
+        setCouponError("");
+        showNotification(`Coupon ${code} applied!`, "success");
+      } else {
+        setCouponError(data.message || "Invalid coupon code");
+        setCouponDiscount(0);
+        setCouponApplied(false);
+      }
+    } catch (err) {
+      setCouponError("Network error");
+    }
+  };
+
+  const removeCoupon = () => {
+    setCouponCode("");
+    setCouponDiscount(0);
+    setCouponApplied(false);
+    setCouponError("");
+  };
+
   // Preview Bill State
   const [previewBillData, setPreviewBillData] = useState<{
     items: CartItem[];
@@ -994,7 +1263,7 @@ export default function App() {
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const previewBillRef = useRef<HTMLDivElement>(null);
 
-  const totalDiscount = customDiscount + (redeemPoints / 2);
+  const totalDiscount = customDiscount + (redeemPoints / 2) + couponDiscount;
   const finalTotal = cartTotal - totalDiscount;
 
   const [memberSearch, setMemberSearch] = useState("");
@@ -1049,6 +1318,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           transaction_id: billNumber,
+          coupon_code: couponApplied ? couponCode : null,
           items: cart.map(item => ({ 
             code: item.code, 
             qty: item.cartQty, 
@@ -1086,6 +1356,10 @@ export default function App() {
             setMember(null);
             setCustomDiscount(0);
             setRedeemPoints(0);
+            setCouponCode("");
+            setCouponDiscount(0);
+            setCouponApplied(false);
+            setCouponError("");
             setMemberSearch("");
             setPayments([]);
             fetchProducts();
@@ -1651,6 +1925,39 @@ export default function App() {
         }
       }
 
+      // Shift + D: Redeem points
+      if (e.shiftKey && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        if (member) {
+          setRedeemInput("");
+          setShowRedeemModal(true);
+        }
+      }
+
+      // + and - for cart quantity
+      if (e.key === "+" || e.key === "=") {
+        if (selectedCartIndex >= 0) {
+          e.preventDefault();
+          const item = cart[selectedCartIndex];
+          if (item.isReturn) {
+            if (Math.abs(item.cartQty) < (item.originalQty || 1)) {
+              setCart(prev => prev.map((p, i) => i === selectedCartIndex ? { ...p, cartQty: p.cartQty - 1 } : p));
+            } else {
+              showNotification("Cannot return more than original quantity", "error");
+            }
+          } else {
+            addToCart(item);
+          }
+        }
+      }
+      if (e.key === "-" || e.key === "_") {
+        if (selectedCartIndex >= 0) {
+          e.preventDefault();
+          const item = cart[selectedCartIndex];
+          setCart(prev => prev.map((p, i) => i === selectedCartIndex ? { ...p, cartQty: p.isReturn ? Math.min(-1, p.cartQty + 1) : Math.max(1, p.cartQty - 1) } : p));
+        }
+      }
+
       // Shift + X: Exchange
       if (e.shiftKey && e.key.toLowerCase() === "x") {
         e.preventDefault();
@@ -2099,61 +2406,145 @@ export default function App() {
             >
               {/* Full Screen Order Header */}
               <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-                {/* Integrated Product Search */}
-                <div className="relative w-full md:w-96">
-                  <div className={cn(
-                    "flex items-center gap-4 p-3 rounded-2xl border transition-colors w-full",
-                    isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
-                  )}>
-                    <Search className="text-zinc-500" size={12} />
-                    <input 
-                      ref={productSearchRef}
-                      type="text" 
-                      placeholder="Search products to add..." 
-                      value={productSearch}
-                      onChange={(e) => {
-                        setProductSearch(e.target.value);
-                        setSelectedProductIndex(-1);
-                      }}
-                      className={cn("bg-transparent border-none focus:outline-none w-full", isDark ? "text-white" : "text-zinc-900")}
-                    />
-                  </div>
-                  
-                  {productSearch && (
+                <div className="flex flex-col md:flex-row gap-4 items-center flex-1">
+                  {/* Integrated Product Search */}
+                  <div className="relative w-full md:w-96">
                     <div className={cn(
-                      "absolute top-full left-0 right-0 mt-2 border rounded-2xl shadow-2xl overflow-hidden z-[110] max-h-96 overflow-y-auto",
-                      isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"
+                      "flex items-center gap-4 p-3 rounded-2xl border transition-colors w-full relative",
+                      isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
                     )}>
-                      {filteredProducts
-                        .map((p, index) => (
+                      <Search className="text-zinc-500" size={12} />
+                      <input 
+                        ref={productSearchRef}
+                        type="text" 
+                        placeholder="Search products to add..." 
+                        value={productSearch}
+                        onChange={(e) => {
+                          setProductSearch(e.target.value);
+                          setSelectedProductIndex(-1);
+                        }}
+                        className={cn("bg-transparent border-none focus:outline-none w-full", isDark ? "text-white" : "text-zinc-900")}
+                      />
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-800 text-zinc-500 border border-zinc-700 pointer-events-none">F2</span>
+                    </div>
+                    
+                    {productSearch && (
+                      <div className={cn(
+                        "absolute top-full left-0 right-0 mt-2 border rounded-2xl shadow-2xl overflow-hidden z-[110] max-h-96 overflow-y-auto",
+                        isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"
+                      )}>
+                        {filteredProducts
+                          .map((p, index) => (
+                            <button 
+                              key={p.code}
+                              onClick={() => {
+                                addToCart(p);
+                                setProductSearch("");
+                                setSelectedProductIndex(-1);
+                              }}
+                              onMouseEnter={() => setSelectedProductIndex(index)}
+                              disabled={p.qty <= 0}
+                              className={cn(
+                                "w-full text-left p-4 border-b last:border-none flex justify-between items-center transition-all",
+                                isDark ? "hover:bg-zinc-800 border-zinc-800" : "hover:bg-zinc-50 border-zinc-100",
+                                selectedProductIndex === index && (isDark ? "bg-zinc-800" : "bg-zinc-100"),
+                                p.qty <= 0 && "opacity-50"
+                              )}
+                            >
+                              <div>
+                                <div className="font-bold">{p.description}</div>
+                                <div className="text-xs text-zinc-500">{p.code} • Stock: {p.qty}</div>
+                              </div>
+                              <div className={cn("font-bold", getThemeColor("text"))}>{(p.selling_price || 0).toFixed(2)} ৳</div>
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Member Search */}
+                  <div className="relative w-full md:w-64">
+                    <div className={cn(
+                      "flex items-center gap-2 p-2 rounded-2xl border transition-colors relative",
+                      isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
+                    )}>
+                      <div className="flex items-center gap-2 flex-1 px-2">
+                        <Users className="text-zinc-500" size={12} />
+                        <input 
+                          ref={memberSearchRef}
+                          type="text" 
+                          placeholder="Search Member..." 
+                          value={memberSearch}
+                          maxLength={11}
+                          onChange={(e) => searchMembers(e.target.value)}
+                          onKeyDown={async (e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              if (memberResults.length > 0) {
+                                const m = memberResults[0];
+                                setMember(m);
+                                setShowMemberResults(false);
+                                setMemberSearch(m.name);
+                              } else if (memberSearch.length === 11) {
+                                const res = await fetch(`/api/members/search?query=${memberSearch}`);
+                                const data = await res.json();
+                                if (data.length > 0) {
+                                  const m = data[0];
+                                  setMember(m);
+                                  setShowMemberResults(false);
+                                  setMemberSearch(m.name);
+                                }
+                              }
+                            }
+                          }}
+                          className={cn("bg-transparent border-none focus:outline-none text-sm w-full", isDark ? "text-white" : "text-zinc-900")}
+                        />
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-800 text-zinc-500 border border-zinc-700 pointer-events-none">⇧M</span>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          setNewMemberData({ ...newMemberData, phone: memberSearch });
+                          setShowRegisterModal(true);
+                        }}
+                        className={cn(
+                          "px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase transition-all relative", 
+                          getThemeColor("bg"), 
+                          "text-white",
+                          isNewMemberGlow && "animate-member-glow ring-2 ring-white/20"
+                        )}
+                      >
+                        New
+                        <span className="absolute -top-1 -right-1 text-[8px] font-bold px-1 rounded bg-black/40 text-white/70 pointer-events-none">⇧C</span>
+                      </button>
+                    </div>
+                    {showMemberResults && memberResults.length > 0 && (
+                      <div className={cn(
+                        "absolute top-full mt-2 left-0 right-0 border rounded-xl shadow-2xl overflow-hidden z-[110]",
+                        isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"
+                      )}>
+                        {memberResults.map(m => (
                           <button 
-                            key={p.code}
+                            key={m.phone}
                             onClick={() => {
-                              addToCart(p);
-                              setProductSearch("");
-                              setSelectedProductIndex(-1);
+                              setMember(m);
+                              setShowMemberResults(false);
+                              setMemberSearch(m.name);
                             }}
-                            onMouseEnter={() => setSelectedProductIndex(index)}
-                            disabled={p.qty <= 0}
                             className={cn(
-                              "w-full text-left p-4 border-b last:border-none flex justify-between items-center transition-all",
-                              isDark ? "hover:bg-zinc-800 border-zinc-800" : "hover:bg-zinc-50 border-zinc-100",
-                              selectedProductIndex === index && (isDark ? "bg-zinc-800" : "bg-zinc-100"),
-                              p.qty <= 0 && "opacity-50"
+                              "w-full text-left px-4 py-2 text-sm border-b last:border-none",
+                              isDark ? "hover:bg-zinc-800 border-zinc-800" : "hover:bg-zinc-50 border-zinc-100"
                             )}
                           >
-                            <div>
-                              <div className="font-bold">{p.description}</div>
-                              <div className="text-xs text-zinc-500">{p.code} • Stock: {p.qty}</div>
-                            </div>
-                            <div className={cn("font-bold", getThemeColor("text"))}>{(p.selling_price || 0).toFixed(2)} ৳</div>
+                            <div className="font-bold">{m.name}</div>
+                            <div className="text-xs text-zinc-400">{m.phone} • {m.points} pts</div>
                           </button>
                         ))}
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <h2 className="text-2xl font-black tracking-tighter">Current Order</h2>
+                <h2 className="text-2xl font-black tracking-tighter hidden xl:block">D POS</h2>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-1 lg:overflow-hidden">
@@ -2216,9 +2607,10 @@ export default function App() {
                                       e.stopPropagation();
                                       setCart(prev => prev.map((p, i) => i === index ? { ...p, cartQty: p.isReturn ? Math.min(-1, p.cartQty + 1) : Math.max(1, p.cartQty - 1) } : p));
                                     }}
-                                    className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center hover:bg-zinc-700"
+                                    className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center hover:bg-zinc-700 relative group"
                                   >
                                     -
+                                    <span className="absolute -top-4 left-0 text-[8px] font-bold opacity-0 group-hover:opacity-50 transition-opacity">-</span>
                                   </button>
                                   <span className="w-8 text-center font-bold">{Math.abs(item.cartQty)}</span>
                                   <button 
@@ -2234,9 +2626,10 @@ export default function App() {
                                         addToCart(item);
                                       }
                                     }}
-                                    className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center hover:bg-zinc-700"
+                                    className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center hover:bg-zinc-700 relative group"
                                   >
                                     +
+                                    <span className="absolute -top-4 right-0 text-[8px] font-bold opacity-0 group-hover:opacity-50 transition-opacity">+</span>
                                   </button>
                                 </div>
                               </td>
@@ -2251,9 +2644,10 @@ export default function App() {
                                     e.stopPropagation();
                                     removeFromCart(index);
                                   }} 
-                                  className="text-zinc-500 hover:text-red-400"
+                                  className="text-zinc-500 hover:text-red-400 relative group"
                                 >
                                   <Trash2 size={10} />
+                                  <span className="absolute -top-4 -right-2 text-[8px] font-bold opacity-0 group-hover:opacity-50 transition-opacity">F4</span>
                                 </button>
                               </td>
                             </tr>
@@ -2271,7 +2665,7 @@ export default function App() {
                     <button 
                       onClick={holdBill}
                       className={cn(
-                        "flex items-center justify-center gap-2 py-3 rounded-2xl font-bold text-xs uppercase transition-all",
+                        "flex items-center justify-center gap-2 py-3 rounded-2xl font-bold text-xs uppercase transition-all relative",
                         heldBill 
                           ? "animate-hold-glow text-white" 
                           : isDark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
@@ -2279,36 +2673,40 @@ export default function App() {
                     >
                       <Pause size={10} />
                       Hold
+                      <span className="absolute top-1 right-2 text-[8px] font-bold opacity-50">⇧H</span>
                     </button>
                     <button 
                       onClick={recallBill}
                       className={cn(
-                        "flex items-center justify-center gap-2 py-3 rounded-2xl font-bold text-xs uppercase transition-all",
+                        "flex items-center justify-center gap-2 py-3 rounded-2xl font-bold text-xs uppercase transition-all relative",
                         isDark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                       )}
                     >
                       <RotateCcw size={10} />
                       Recall
+                      <span className="absolute top-1 right-2 text-[8px] font-bold opacity-50">⇧R</span>
                     </button>
                     <button 
                       onClick={() => setShowReturnModal(true)}
                       className={cn(
-                        "flex items-center justify-center gap-2 py-3 rounded-2xl font-bold text-xs uppercase transition-all",
+                        "flex items-center justify-center gap-2 py-3 rounded-2xl font-bold text-xs uppercase transition-all relative",
                         isDark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                       )}
                     >
                       <ArrowLeftRight size={10} />
                       Return
+                      <span className="absolute top-1 right-2 text-[8px] font-bold opacity-50">⇧U</span>
                     </button>
                     <button 
                       onClick={() => setShowExchangeModal(true)}
                       className={cn(
-                        "flex items-center justify-center gap-2 py-3 rounded-2xl font-bold text-xs uppercase transition-all",
+                        "flex items-center justify-center gap-2 py-3 rounded-2xl font-bold text-xs uppercase transition-all relative",
                         isDark ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                       )}
                     >
                       <RefreshCw size={10} />
                       Exchange
+                      <span className="absolute top-1 right-2 text-[8px] font-bold opacity-50">⇧X</span>
                     </button>
                   </div>
 
@@ -2317,84 +2715,10 @@ export default function App() {
                     isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-lg"
                   )}>
                     <div className="p-6 space-y-6">
-                      <h3 className="text-xl font-bold">Order Summary</h3>
+                      <h3 className="text-xl font-bold">BILL</h3>
                     
                     {/* Member Section */}
                     <div className="space-y-4">
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <input 
-                            ref={memberSearchRef}
-                            type="text" 
-                            placeholder="Search Member..." 
-                            value={memberSearch}
-                            maxLength={11}
-                            onChange={(e) => searchMembers(e.target.value)}
-                            onKeyDown={async (e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                if (memberResults.length > 0) {
-                                  const m = memberResults[0];
-                                  setMember(m);
-                                  setShowMemberResults(false);
-                                  setMemberSearch(m.name);
-                                } else if (memberSearch.length === 11) {
-                                  const res = await fetch(`/api/members/search?query=${memberSearch}`);
-                                  const data = await res.json();
-                                  if (data.length > 0) {
-                                    const m = data[0];
-                                    setMember(m);
-                                    setShowMemberResults(false);
-                                    setMemberSearch(m.name);
-                                  }
-                                }
-                              }
-                            }}
-                            className={cn(
-                              "w-full border rounded-xl px-4 py-2 text-sm",
-                              isDark ? "bg-zinc-800 border-zinc-700" : "bg-white border-zinc-200"
-                            )}
-                          />
-                          {showMemberResults && memberResults.length > 0 && (
-                            <div className={cn(
-                              "absolute bottom-full mb-2 left-0 right-0 border rounded-xl shadow-2xl overflow-hidden z-50",
-                              isDark ? "bg-zinc-800 border-zinc-700" : "bg-white border-zinc-200"
-                            )}>
-                              {memberResults.map(m => (
-                                <button 
-                                  key={m.phone}
-                                  onClick={() => {
-                                    setMember(m);
-                                    setShowMemberResults(false);
-                                    setMemberSearch(m.name);
-                                  }}
-                                  className={cn(
-                                    "w-full text-left px-4 py-2 text-sm border-b last:border-none",
-                                    isDark ? "hover:bg-zinc-700 border-zinc-700" : "hover:bg-zinc-50 border-zinc-100"
-                                  )}
-                                >
-                                  <div className="font-bold">{m.name}</div>
-                                  <div className="text-xs text-zinc-400">{m.phone} • {m.points} pts</div>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <button 
-                          onClick={() => {
-                            setNewMemberData({ ...newMemberData, phone: memberSearch });
-                            setShowRegisterModal(true);
-                          }}
-                          className={cn(
-                            "px-4 rounded-xl text-xs font-bold uppercase transition-all", 
-                            getThemeColor("bg"), 
-                            "text-white",
-                            isNewMemberGlow && "animate-member-glow ring-2 ring-white/20"
-                          )}
-                        >
-                          New
-                        </button>
-                      </div>
                       {member && (
                         <div className={cn("border p-4 rounded-2xl flex justify-between items-center", getThemeColor("bg"), "bg-opacity-10", getThemeColor("border").replace("border-", "border-opacity-20 border-"))}>
                           <div>
@@ -2407,9 +2731,10 @@ export default function App() {
                                 setRedeemInput("");
                                 setShowRedeemModal(true);
                               }}
-                              className={cn("text-xs text-white px-3 py-1.5 rounded-lg", getThemeColor("bg"))}
+                              className={cn("text-xs text-white px-3 py-1.5 rounded-lg relative", getThemeColor("bg"))}
                             >
                               Redeem
+                              <span className="absolute -top-1 -right-1 text-[8px] font-bold px-1 rounded bg-black/40 text-white/70 pointer-events-none">⇧D</span>
                             </button>
                             <button 
                               onClick={() => {
@@ -2417,9 +2742,10 @@ export default function App() {
                                 setMemberSearch("");
                                 setRedeemPoints(0);
                               }}
-                              className="text-xs bg-zinc-700 text-zinc-400 px-3 py-1.5 rounded-lg"
+                              className="text-xs bg-zinc-700 text-zinc-400 px-3 py-1.5 rounded-lg relative"
                             >
                               Clear
+                              <span className="absolute -top-1 -right-1 text-[8px] font-bold px-1 rounded bg-black/40 text-white/70 pointer-events-none">⌥X</span>
                             </button>
                           </div>
                         </div>
@@ -2452,6 +2778,47 @@ export default function App() {
                           className="w-24 bg-transparent text-right border-b border-zinc-700 focus:outline-none"
                         />
                       </div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center text-sm text-zinc-400">
+                          <span>Coupon</span>
+                          <div className="flex gap-2">
+                            <input 
+                              type="text" 
+                              value={couponCode} 
+                              onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                              placeholder="Enter Code"
+                              className="w-24 bg-transparent text-right border-b border-zinc-700 focus:outline-none text-xs"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  applyCoupon(couponCode);
+                                }
+                              }}
+                            />
+                            {!couponApplied ? (
+                              <button 
+                                onClick={() => applyCoupon(couponCode)}
+                                className={cn("text-[10px] px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300")}
+                              >
+                                Apply
+                              </button>
+                            ) : (
+                              <button 
+                                onClick={removeCoupon}
+                                className="text-[10px] px-2 py-1 rounded bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {couponError && <p className="text-[10px] text-red-500 text-right">{couponError}</p>}
+                        {couponApplied && (
+                          <div className="flex justify-between text-[10px] text-emerald-500">
+                            <span>Coupon Discount</span>
+                            <span>-{couponDiscount.toFixed(2)} ৳</span>
+                          </div>
+                        )}
+                      </div>
                       {redeemPoints > 0 && (
                         <div className={cn("flex justify-between", getThemeColor("text"))}>
                           <span>Points Discount</span>
@@ -2469,12 +2836,13 @@ export default function App() {
                       onClick={() => setShowPaymentModal(true)}
                       disabled={cart.length === 0}
                       className={cn(
-                        "w-full text-white font-bold py-5 rounded-3xl shadow-2xl transition-all disabled:bg-zinc-800 disabled:shadow-none",
+                        "w-full text-white font-bold py-5 rounded-3xl shadow-2xl transition-all disabled:bg-zinc-800 disabled:shadow-none relative",
                         getThemeColor("bg"),
                         getThemeColor("shadow")
                       )}
                     >
                       Complete Sale
+                      <span className="absolute top-2 right-4 text-[10px] font-bold opacity-50">SPACE</span>
                     </button>
                   </div>
                 </div>
@@ -3378,6 +3746,19 @@ export default function App() {
                         <button onClick={() => updatePassword("cashier")} className={cn("px-4 rounded-xl text-xs", isDark ? "bg-zinc-700" : "bg-zinc-100")}>Update</button>
                       </div>
                     </div>
+
+                    <div className="pt-4 border-t border-zinc-800">
+                      <button 
+                        onClick={() => setShowCouponManagement(true)}
+                        className={cn(
+                          "w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all",
+                          isDark ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                        )}
+                      >
+                        <Ticket size={14} />
+                        Coupon Management
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3811,6 +4192,14 @@ export default function App() {
                 </div>
               </motion.div>
             </div>
+          )}
+          {showCouponManagement && (
+            <CouponManagement 
+              onClose={() => setShowCouponManagement(false)} 
+              isDark={isDark} 
+              getThemeColor={getThemeColor}
+              showNotification={showNotification}
+            />
           )}
         </AnimatePresence>
       </main>

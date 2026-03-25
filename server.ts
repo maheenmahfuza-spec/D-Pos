@@ -71,6 +71,18 @@ db.exec(`
     password TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS coupons (
+    code TEXT PRIMARY KEY,
+    discount_type TEXT,
+    discount_value REAL,
+    min_range REAL,
+    qty INTEGER,
+    used_qty INTEGER DEFAULT 0,
+    valid_date TEXT,
+    status TEXT DEFAULT 'active',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_type TEXT,
@@ -112,7 +124,7 @@ try {
 
 // Seed initial data
 const seedSettings = db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
-seedSettings.run("shop_name", "SportsStock Pro");
+seedSettings.run("shop_name", "D-POS");
 
 const seedUsers = db.prepare("INSERT OR IGNORE INTO users (role, password) VALUES (?, ?)");
 seedUsers.run("admin", "admin123");
@@ -246,6 +258,44 @@ async function startServer() {
     }
   });
 
+  app.get("/api/coupons", (req, res) => {
+    const coupons = db.prepare("SELECT * FROM coupons ORDER BY created_at DESC").all();
+    res.json(coupons);
+  });
+
+  app.post("/api/coupons", (req, res) => {
+    const { code, discount_type, discount_value, min_range, qty, valid_date } = req.body;
+    try {
+      db.prepare(`
+        INSERT INTO coupons (code, discount_type, discount_value, min_range, qty, valid_date)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(code, discount_type, discount_value, min_range, qty, valid_date);
+      logEvent("COUPON_CREATE", `Created coupon: ${code} (${discount_type}: ${discount_value})`);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.get("/api/coupons/validate/:code", (req, res) => {
+    const coupon = db.prepare("SELECT * FROM coupons WHERE code = ? AND status = 'active'").get(req.params.code);
+    if (!coupon) {
+      return res.status(404).json({ success: false, message: "Invalid or inactive coupon" });
+    }
+    
+    const now = new Date();
+    const validDate = new Date(coupon.valid_date);
+    if (now > validDate) {
+      return res.status(400).json({ success: false, message: "Coupon has expired" });
+    }
+    
+    if (coupon.used_qty >= coupon.qty) {
+      return res.status(400).json({ success: false, message: "Coupon limit reached" });
+    }
+    
+    res.json({ success: true, coupon });
+  });
+
   app.get("/api/members/search", (req, res) => {
     const { query } = req.query;
     if (!query) return res.json([]);
@@ -281,7 +331,7 @@ async function startServer() {
   });
 
   app.post("/api/sales", (req, res) => {
-    const { transaction_id: client_txn_id, items, member_phone, discount, points_redeemed, payments } = req.body;
+    const { transaction_id: client_txn_id, items, member_phone, discount, points_redeemed, payments, coupon_code } = req.body;
     const date = new Date().toISOString().split("T")[0];
     const transaction_id = client_txn_id || `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
 
@@ -346,6 +396,10 @@ async function startServer() {
           db.prepare("UPDATE members SET points = points - ? WHERE phone = ?")
             .run(points_redeemed, member_phone);
         }
+      }
+
+      if (coupon_code) {
+        db.prepare("UPDATE coupons SET used_qty = used_qty + 1 WHERE code = ?").run(coupon_code);
       }
     });
 
