@@ -265,6 +265,9 @@ async function startServer() {
 
   app.post("/api/coupons", (req, res) => {
     const { code, discount_type, discount_value, min_range, qty, valid_date } = req.body;
+    if (!code || code.length < 6) {
+      return res.status(400).json({ success: false, message: "Coupon code must be at least 6 characters" });
+    }
     try {
       db.prepare(`
         INSERT INTO coupons (code, discount_type, discount_value, min_range, qty, valid_date)

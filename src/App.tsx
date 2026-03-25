@@ -30,7 +30,8 @@ import {
   RotateCcw,
   ArrowLeftRight,
   RefreshCw,
-  Ticket
+  Ticket,
+  Lock
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import * as XLSX from "xlsx";
@@ -626,7 +627,8 @@ const Bill = ({
   pointsEarned,
   transactionId,
   receivedAmount,
-  changeAmount
+  changeAmount,
+  couponDiscount
 }: { 
   items: CartItem[], 
   member: Member | null, 
@@ -640,7 +642,8 @@ const Bill = ({
   pointsEarned: number,
   transactionId: string,
   receivedAmount: number,
-  changeAmount: number
+  changeAmount: number,
+  couponDiscount: number
 }) => {
   return (
     <div className="absolute -left-[9999px] top-0">
@@ -693,9 +696,15 @@ const Bill = ({
             <span>Net Subtotal:</span>
             <span>{((total || 0) + (discount || 0)).toFixed(2)}</span>
           </div>
+          {couponDiscount > 0 && (
+            <div className="flex justify-between text-red-600">
+              <span>Coupon Discount:</span>
+              <span>-{(couponDiscount || 0).toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex justify-between text-red-600">
-            <span>Discount:</span>
-            <span>-{(discount || 0).toFixed(2)}</span>
+            <span>{couponDiscount > 0 ? "Other Discount:" : "Discount:"}</span>
+            <span>-{(discount - couponDiscount || 0).toFixed(2)}</span>
           </div>
           <div className="flex justify-between font-bold text-lg border-t-2 border-black pt-1">
             <span>{total < 0 ? "REFUND TOTAL:" : "TOTAL:"}</span>
@@ -791,8 +800,8 @@ const CouponManagement = ({ onClose, isDark, getThemeColor, showNotification }: 
   }, []);
 
   const handleCreate = async () => {
-    if (newCoupon.code.length !== 6 || !/^\d+$/.test(newCoupon.code)) {
-      showNotification("Coupon code must be exactly 6 digits", "error");
+    if (newCoupon.code.length < 6) {
+      showNotification("Coupon code must be at least 6 characters", "error");
       return;
     }
     if (newCoupon.discount_value <= 0) {
@@ -853,14 +862,13 @@ const CouponManagement = ({ onClose, isDark, getThemeColor, showNotification }: 
             <h4 className="text-sm font-bold uppercase tracking-wider text-zinc-500">Create New Coupon</h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-[10px] text-zinc-500 uppercase mb-1">Coupon Code (6 Digits)</label>
+                <label className="block text-[10px] text-zinc-500 uppercase mb-1">Coupon Code (Min 6 Chars)</label>
                 <input 
                   type="text" 
-                  maxLength={6}
                   value={newCoupon.code}
-                  onChange={e => setNewCoupon({ ...newCoupon, code: e.target.value.replace(/\D/g, '') })}
+                  onChange={e => setNewCoupon({ ...newCoupon, code: e.target.value.toUpperCase() })}
                   className={cn("w-full border rounded-xl px-4 py-2 text-sm", isDark ? "bg-zinc-800 border-zinc-700" : "bg-zinc-50 border-zinc-200")}
-                  placeholder="e.g. 123456"
+                  placeholder="e.g. SAVE20"
                 />
               </div>
               <div>
@@ -1002,7 +1010,7 @@ export default function App() {
   const [appTheme, setAppTheme] = useState("emerald");
   const [themeMode, setThemeMode] = useState<"dark" | "light">("dark");
   const [appLogo, setAppLogo] = useState("");
-  const [billQrData, setBillQrData] = useState("https://sportsstock.pro");
+  const [billQrData, setBillQrData] = useState("https://d-pos.app");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -1202,8 +1210,8 @@ export default function App() {
   const [showCouponManagement, setShowCouponManagement] = useState(false);
 
   const applyCoupon = async (code: string) => {
-    if (code.length !== 6) {
-      setCouponError("Coupon must be 6 digits");
+    if (code.length < 6) {
+      setCouponError("Coupon must be at least 6 characters");
       return;
     }
 
@@ -1285,11 +1293,11 @@ export default function App() {
   const pointsEarned = member ? Math.max(0, Math.floor(finalTotal / 100)) : 0;
 
   const handleCheckout = async (paymentList: { type: string; amount: number }[]) => {
-    // Validation: Discount must be greater than cost price + 6% (only for normal sales)
+    // Validation: Discount must be greater than cost price + 6% (only for normal sales, skip if coupon or points applied)
     const totalCost = cart.reduce((sum, item) => sum + (item.cost_price * item.cartQty), 0);
     const hasReturn = cart.some(item => item.isReturn);
     
-    if (!hasReturn && finalTotal < totalCost * 1.06) {
+    if (!hasReturn && !couponApplied && redeemPoints === 0 && finalTotal < totalCost * 1.06) {
       showNotification("Discount too high! Final price must be at least 6% above cost price.", "error");
       return;
     }
@@ -2022,6 +2030,7 @@ export default function App() {
         transactionId={currentTransactionId}
         receivedAmount={receivedAmount}
         changeAmount={changeAmount}
+        couponDiscount={couponDiscount}
       />
       <AnimatePresence>
         {notification && (
@@ -2463,7 +2472,7 @@ export default function App() {
                   </div>
 
                   {/* Member Search */}
-                  <div className="relative w-full md:w-64">
+                  <div className="relative w-full md:w-80">
                     <div className={cn(
                       "flex items-center gap-2 p-2 rounded-2xl border transition-colors relative",
                       isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
@@ -2499,6 +2508,11 @@ export default function App() {
                           }}
                           className={cn("bg-transparent border-none focus:outline-none text-sm w-full", isDark ? "text-white" : "text-zinc-900")}
                         />
+                        {member && (
+                          <div className={cn("flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap", getThemeColor("bg"), "text-white")}>
+                            {member.points} pts
+                          </div>
+                        )}
                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-800 text-zinc-500 border border-zinc-700 pointer-events-none">⇧M</span>
                       </div>
                       <button 
@@ -2723,7 +2737,6 @@ export default function App() {
                         <div className={cn("border p-4 rounded-2xl flex justify-between items-center", getThemeColor("bg"), "bg-opacity-10", getThemeColor("border").replace("border-", "border-opacity-20 border-"))}>
                           <div>
                             <div className={cn("font-bold", getThemeColor("text"))}>{member.name}</div>
-                            <div className="text-xs text-zinc-400">Points: {member.points}</div>
                           </div>
                           <div className="flex gap-2">
                             <button 
@@ -3658,11 +3671,11 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Settings */}
+                {/* System Settings */}
                 <div className={cn("p-8 rounded-3xl border space-y-6 transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                   <div className={cn("flex items-center gap-3", getThemeColor("text"))}>
                     <Settings size={14} />
-                    <h3 className="text-lg font-bold">System Settings</h3>
+                    <h3 className="text-lg font-bold">SYSTEM SETTING</h3>
                   </div>
                   <div className="space-y-4">
                     <div>
@@ -3722,6 +3735,16 @@ export default function App() {
                         ))}
                       </div>
                     </div>
+                  </div>
+                </div>
+
+                {/* Password Management */}
+                <div className={cn("p-8 rounded-3xl border space-y-6 transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                  <div className={cn("flex items-center gap-3", getThemeColor("text"))}>
+                    <Lock size={14} />
+                    <h3 className="text-lg font-bold">PASSWORD MANAGEMENT</h3>
+                  </div>
+                  <div className="space-y-4">
                     <div>
                       <label className="block text-xs text-zinc-500 uppercase mb-2">Admin Password</label>
                       <div className="flex gap-2">
