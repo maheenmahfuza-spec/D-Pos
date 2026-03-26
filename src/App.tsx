@@ -1336,18 +1336,28 @@ export default function App() {
 
   // --- POS Logic ---
   const addToCart = (product: Product) => {
-    setCart(prev => {
-      const existing = prev.find(p => p.code === product.code && !p.isReturn);
-      if (existing) {
-        if (existing.cartQty >= product.qty) return prev;
+    const existing = cart.find(p => p.code === product.code && !p.isReturn);
+    if (existing) {
+      if (existing.cartQty >= product.qty) {
+        showNotification(`Insufficient stock for ${product.description}. Available: ${product.qty}`, "error");
+        return;
+      }
+      setCart(prev => {
         const updated = prev.map(p => (p.code === product.code && !p.isReturn) ? { ...p, cartQty: p.cartQty + 1 } : p);
         setSelectedCartIndex(updated.findIndex(p => p.code === product.code && !p.isReturn));
         return updated;
+      });
+    } else {
+      if (product.qty <= 0) {
+        showNotification(`"${product.description}" is out of stock.`, "error");
+        return;
       }
-      const updated = [...prev, { ...product, cartQty: 1, isReturn: false }];
-      setSelectedCartIndex(updated.length - 1);
-      return updated;
-    });
+      setCart(prev => {
+        const updated = [...prev, { ...product, cartQty: 1, isReturn: false }];
+        setSelectedCartIndex(updated.length - 1);
+        return updated;
+      });
+    }
   };
 
   const removeFromCart = (index: number) => {
@@ -2156,6 +2166,11 @@ export default function App() {
           if (newQty !== null) {
             const qty = parseInt(newQty);
             if (!isNaN(qty) && qty > 0) {
+              const item = cart[selectedCartIndex];
+              if (qty > item.qty && !item.isReturn) {
+                showNotification(`Insufficient stock for ${item.description}. Available: ${item.qty}`, "error");
+                return;
+              }
               setCart(prev => prev.map((p, i) => i === selectedCartIndex ? { ...p, cartQty: qty } : p));
             }
           }

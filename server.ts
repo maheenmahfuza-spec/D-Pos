@@ -436,13 +436,17 @@ async function startServer() {
 
     const transaction = db.transaction(() => {
       let totalTaka = 0;
-      for (const item of items) {
+      
+      // Sort items: returns first, then sales. This ensures stock is added back before checking for sales.
+      const sortedItems = [...items].sort((a, b) => a.qty - b.qty);
+
+      for (const item of sortedItems) {
         const product = db.prepare("SELECT * FROM products WHERE code = ?").get(item.code) as any;
         if (!product) throw new Error(`Product not found: ${item.code}`);
         
         // Only check stock for positive quantities (sales)
         if (item.qty > 0 && product.qty < item.qty) {
-          throw new Error(`Insufficient stock for ${item.code}`);
+          throw new Error(`Insufficient stock for ${item.code} (${product.description}). Available: ${product.qty}, Requested: ${item.qty}`);
         }
 
         const itemTotal = item.qty * item.price;
