@@ -526,7 +526,7 @@ async function startServer() {
   app.get("/api/reports/sales", (req, res) => {
     const { start, end } = req.query;
     const sales = db.prepare(`
-      SELECT s.*, p.description 
+      SELECT s.*, p.description, p.category 
       FROM sales s 
       JOIN products p ON s.product_code = p.code 
       WHERE date BETWEEN ? AND ?

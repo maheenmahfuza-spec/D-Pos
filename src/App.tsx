@@ -1901,6 +1901,7 @@ export default function App() {
     });
     fetchProducts();
     fetchCategories();
+    fetchPurchases();
     setNewProduct({ code: "", description: "", category: "", cost_price: 0, qty: 0 });
   };
 
@@ -1962,6 +1963,7 @@ export default function App() {
           showNotification(`Successfully imported ${productsToUpload.length} products!`);
           fetchProducts();
           fetchCategories();
+          fetchPurchases();
           logEvent("BULK_IMPORT", `Imported ${productsToUpload.length} products via Excel`);
           // Reset file input
           e.target.value = "";
