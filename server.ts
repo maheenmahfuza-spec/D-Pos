@@ -445,8 +445,12 @@ async function startServer() {
         if (!product) throw new Error(`Product not found: ${item.code}`);
         
         // Only check stock for positive quantities (sales)
-        if (item.qty > 0 && product.qty < item.qty) {
-          throw new Error(`Insufficient stock for ${item.code} (${product.description}). Available: ${product.qty}, Requested: ${item.qty}`);
+        const currentStock = Number(product.qty);
+        const requestedQty = Number(item.qty);
+        
+        if (requestedQty > 0 && currentStock < requestedQty) {
+          console.error(`Stock check failed for ${item.code}: Available=${currentStock}, Requested=${requestedQty}`);
+          throw new Error(`Insufficient stock for ${item.code} (${product.description}). Available: ${currentStock}, Requested: ${requestedQty}`);
         }
 
         const itemTotal = item.qty * item.price;
