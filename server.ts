@@ -95,6 +95,18 @@ db.exec(`
     name TEXT UNIQUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS purchases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_code TEXT,
+    description TEXT,
+    category TEXT,
+    qty INTEGER,
+    cost_price REAL,
+    total_cost REAL,
+    date TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // Migration: Add columns to sales if they don't exist
@@ -109,6 +121,9 @@ try {
 } catch (e) {}
 try {
   db.exec("ALTER TABLE sales ADD COLUMN original_transaction_id TEXT");
+} catch (e) {}
+try {
+  db.exec("ALTER TABLE sales ADD COLUMN cost_price REAL DEFAULT 0");
 } catch (e) {}
 try {
   db.exec("ALTER TABLE members ADD COLUMN total_points INTEGER DEFAULT 0");
@@ -234,6 +249,11 @@ async function startServer() {
   app.post("/api/products", (req, res) => {
     const { code, description, category, cost_price, selling_price, qty } = req.body;
     try {
+      // Automatically add category if it doesn't exist
+      if (category) {
+        db.prepare("INSERT OR IGNORE INTO categories (name) VALUES (?)").run(category);
+      }
+
       db.prepare(`
         INSERT INTO products (code, description, category, cost_price, selling_price, qty)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -245,6 +265,13 @@ async function startServer() {
           qty=products.qty + excluded.qty
       `).run(code, description, category, cost_price, selling_price, qty);
       
+      // Log as purchase
+      const date = new Date().toISOString().split('T')[0];
+      db.prepare(`
+        INSERT INTO purchases (product_code, description, category, qty, cost_price, total_cost, date)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(code, description, category, qty, cost_price, qty * cost_price, date);
+
       logEvent("PRODUCT_UPDATE", `Added/Updated product: ${code} (${description}), Qty: ${qty}`);
       broadcast({ type: "STOCK_UPDATED" });
       res.json({ success: true });
@@ -270,13 +297,30 @@ async function startServer() {
         qty=products.qty + excluded.qty
     `);
 
+    const insertCategory = db.prepare("INSERT OR IGNORE INTO categories (name) VALUES (?)");
+    
+    const insertPurchase = db.prepare(`
+      INSERT INTO purchases (product_code, description, category, qty, cost_price, total_cost, date)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const date = new Date().toISOString().split('T')[0];
+
     const transaction = db.transaction((items) => {
       for (const item of items) {
+        // Automatically add category if it doesn't exist
+        if (item.category) {
+          insertCategory.run(item.category);
+        }
+
         // Ensure selling price is at least 12% more than cost price if not provided or too low
         const minSellingPrice = item.cost_price * 1.12;
         const finalSellingPrice = Math.max(item.selling_price || 0, minSellingPrice);
         
         insert.run(item.code, item.description, item.category, item.cost_price, finalSellingPrice, item.qty);
+        
+        // Log as purchase
+        insertPurchase.run(item.code, item.description, item.category, item.qty, item.cost_price, item.qty * item.cost_price, date);
       }
     });
 
@@ -285,6 +329,26 @@ async function startServer() {
       logEvent("BULK_IMPORT", `Imported ${products.length} products via Excel`);
       broadcast({ type: "STOCK_UPDATED" });
       res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.get("/api/purchases", (req, res) => {
+    const { start, end } = req.query;
+    let query = "SELECT * FROM purchases";
+    let params: any[] = [];
+
+    if (start && end) {
+      query += " WHERE date BETWEEN ? AND ?";
+      params = [start, end];
+    }
+    
+    query += " ORDER BY created_at DESC";
+    
+    try {
+      const purchases = db.prepare(query).all(...params);
+      res.json(purchases);
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -393,8 +457,11 @@ async function startServer() {
 
       // Record sales
       for (const item of items) {
-        db.prepare("INSERT INTO sales (transaction_id, original_transaction_id, date, product_code, qty, total_price, discount, member_phone, points_earned, points_redeemed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-          .run(transaction_id, item.original_transaction_id || null, date, item.code, item.qty, item.qty * item.price, (discount || 0) / items.length, member_phone, pointsEarned / items.length, (points_redeemed || 0) / items.length);
+        const product = db.prepare("SELECT cost_price FROM products WHERE code = ?").get(item.code) as any;
+        const itemCostPrice = product ? product.cost_price : 0;
+
+        db.prepare("INSERT INTO sales (transaction_id, original_transaction_id, date, product_code, qty, total_price, discount, member_phone, points_earned, points_redeemed, cost_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+          .run(transaction_id, item.original_transaction_id || null, date, item.code, item.qty, item.qty * item.price, (discount || 0) / items.length, member_phone, pointsEarned / items.length, (points_redeemed || 0) / items.length, itemCostPrice);
       }
 
       // Record payments

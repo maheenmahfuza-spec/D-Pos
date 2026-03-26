@@ -31,7 +31,8 @@ import {
   ArrowLeftRight,
   RefreshCw,
   Ticket,
-  Lock
+  Lock,
+  BarChart3
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import * as XLSX from "xlsx";
@@ -87,6 +88,20 @@ interface Sale {
   member_phone: string | null;
   points_earned?: number;
   points_redeemed?: number;
+  category?: string;
+  cost_price?: number;
+}
+
+interface Purchase {
+  id: number;
+  product_code: string;
+  description: string;
+  category: string;
+  qty: number;
+  cost_price: number;
+  total_cost: number;
+  date: string;
+  created_at: string;
 }
 
 interface CartItem extends Product {
@@ -977,27 +992,48 @@ const CouponManagement = ({ onClose, isDark, getThemeColor, showNotification }: 
   );
 };
 
+// --- Local Storage Helpers ---
+const saveToLocal = (key: string, data: any) => {
+  try {
+    localStorage.setItem(`dpos_${key}`, JSON.stringify(data));
+  } catch (err) {
+    console.error(`Failed to save ${key} to local storage:`, err);
+  }
+};
+
+const loadFromLocal = (key: string) => {
+  try {
+    const data = localStorage.getItem(`dpos_${key}`);
+    return data ? JSON.parse(data) : null;
+  } catch (err) {
+    console.error(`Failed to load ${key} from local storage:`, err);
+    return null;
+  }
+};
+
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
-  const [role, setRole] = useState<Role>(null);
-  const [activeTab, setActiveTab] = useState<"pos" | "inventory" | "members" | "reports" | "about" | "dev" | "add-product" | "history">("pos");
-  const [products, setProducts] = useState<Product[]>([]);
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [member, setMember] = useState<Member | null>(null);
-  const [shopName, setShopName] = useState("D-POS");
-  const [sales, setSales] = useState<Sale[]>([]);
+  const [role, setRole] = useState<Role>(() => loadFromLocal("role"));
+  const [activeTab, setActiveTab] = useState<"pos" | "inventory" | "members" | "reports" | "purchases" | "about" | "dev" | "add-product" | "history">(() => loadFromLocal("activeTab") || "pos");
+  const [products, setProducts] = useState<Product[]>(() => loadFromLocal("products") || []);
+  const [cart, setCart] = useState<CartItem[]>(() => loadFromLocal("cart") || []);
+  const [member, setMember] = useState<Member | null>(() => loadFromLocal("member"));
+  const [shopName, setShopName] = useState(() => loadFromLocal("settings")?.shop_name || "D-POS");
+  const [sales, setSales] = useState<Sale[]>(() => loadFromLocal("sales") || []);
+  const [purchases, setPurchases] = useState<Purchase[]>(() => loadFromLocal("purchases") || []);
   const [dateRange, setDateRange] = useState({ 
     start: format(new Date(), "yyyy-MM-dd"), 
     end: format(new Date(), "yyyy-MM-dd") 
   });
   
   const billRef = useRef<HTMLDivElement>(null);
+  const summaryRef = useRef<HTMLDivElement>(null);
   const productSearchRef = useRef<HTMLInputElement>(null);
   const memberSearchRef = useRef<HTMLInputElement>(null);
   const completeSaleBtnRef = useRef<HTMLButtonElement>(null);
 
-  const [allMembers, setAllMembers] = useState<Member[]>([]);
-  const [categories, setCategories] = useState<{id: number, name: string}[]>([]);
+  const [allMembers, setAllMembers] = useState<Member[]>(() => loadFromLocal("members") || []);
+  const [categories, setCategories] = useState<{id: number, name: string}[]>(() => loadFromLocal("categories") || []);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [selectedMemberHistory, setSelectedMemberHistory] = useState<PointsHistory[]>([]);
@@ -1010,10 +1046,10 @@ export default function App() {
   const [inventorySearch, setInventorySearch] = useState("");
   const [memberDirectorySearch, setMemberDirectorySearch] = useState("");
   const [notification, setNotification] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
-  const [appTheme, setAppTheme] = useState("emerald");
+  const [appTheme, setAppTheme] = useState(() => loadFromLocal("settings")?.app_theme || "emerald");
   const [themeMode, setThemeMode] = useState<"dark" | "light">("dark");
-  const [appLogo, setAppLogo] = useState("");
-  const [billQrData, setBillQrData] = useState("https://d-pos.app");
+  const [appLogo, setAppLogo] = useState(() => loadFromLocal("settings")?.app_logo || "");
+  const [billQrData, setBillQrData] = useState(() => loadFromLocal("settings")?.bill_qr_data || "https://d-pos.app");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -1030,17 +1066,38 @@ export default function App() {
   const [isEditingQty, setIsEditingQty] = useState(false);
   const [showExchangeModal, setShowExchangeModal] = useState(false);
   const [showReturnModal, setShowReturnModal] = useState(false);
+  const [reportType, setReportType] = useState<"all" | "category" | "product" | "month" | "summary">("all");
   const [billNumberInput, setBillNumberInput] = useState("");
   const [foundBillSales, setFoundBillSales] = useState<Sale[]>([]);
   const [returnQuantities, setReturnQuantities] = useState<{[key: string]: number}>({});
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>(() => loadFromLocal("auditLogs") || []);
   const [heldBill, setHeldBill] = useState<{
     cart: CartItem[];
     member: Member | null;
     customDiscount: number;
     redeemPoints: number;
     memberSearch: string;
-  } | null>(null);
+  } | null>(() => loadFromLocal("heldBill"));
+
+  useEffect(() => {
+    saveToLocal("role", role);
+  }, [role]);
+
+  useEffect(() => {
+    saveToLocal("activeTab", activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    saveToLocal("cart", cart);
+  }, [cart]);
+
+  useEffect(() => {
+    saveToLocal("member", member);
+  }, [member]);
+
+  useEffect(() => {
+    saveToLocal("heldBill", heldBill);
+  }, [heldBill]);
 
   const showNotification = (message: string, type: "success" | "error" | "info" = "success") => {
     setNotification({ message, type });
@@ -1058,6 +1115,7 @@ export default function App() {
       fetchCategories();
       if (role === "admin" || role === "dev") {
         fetchSales();
+        fetchPurchases();
         fetchAllMembers();
       }
 
@@ -1072,6 +1130,7 @@ export default function App() {
             fetchProducts();
             if (role === "admin" || role === "dev") {
               fetchSales();
+              fetchPurchases();
             }
           }
         } catch (err) {
@@ -1108,13 +1167,22 @@ export default function App() {
     }
   }, [billNumberInput, sales]);
 
+  const clearLocalCache = () => {
+    const keys = ["role", "activeTab", "products", "cart", "member", "sales", "purchases", "members", "categories", "settings", "auditLogs", "heldBill"];
+    keys.forEach(key => localStorage.removeItem(`dpos_${key}`));
+    showNotification("Local cache cleared. Refreshing...", "success");
+    setTimeout(() => window.location.reload(), 1000);
+  };
   const fetchAuditLogs = async () => {
     try {
       const res = await fetch("/api/logs");
       const data = await res.json();
       setAuditLogs(data);
+      saveToLocal("auditLogs", data);
     } catch (err) {
       console.error("Failed to fetch logs:", err);
+      const localData = loadFromLocal("auditLogs");
+      if (localData) setAuditLogs(localData);
     }
   };
 
@@ -1132,15 +1200,29 @@ export default function App() {
   };
 
   const fetchProducts = async () => {
-    const res = await fetch("/api/products");
-    const data = await res.json();
-    setProducts(data);
+    try {
+      const res = await fetch("/api/products");
+      const data = await res.json();
+      setProducts(data);
+      saveToLocal("products", data);
+    } catch (err) {
+      console.error("Failed to fetch products:", err);
+      const localData = loadFromLocal("products");
+      if (localData) setProducts(localData);
+    }
   };
 
   const fetchCategories = async () => {
-    const res = await fetch("/api/categories");
-    const data = await res.json();
-    setCategories(data);
+    try {
+      const res = await fetch("/api/categories");
+      const data = await res.json();
+      setCategories(data);
+      saveToLocal("categories", data);
+    } catch (err) {
+      console.error("Failed to fetch categories:", err);
+      const localData = loadFromLocal("categories");
+      if (localData) setCategories(localData);
+    }
   };
 
   const addCategory = async () => {
@@ -1180,24 +1262,63 @@ export default function App() {
   };
 
   const fetchSettings = async () => {
-    const res = await fetch("/api/settings");
-    const data = await res.json();
-    if (data.shop_name) setShopName(data.shop_name);
-    if (data.app_theme) setAppTheme(data.app_theme);
-    if (data.app_logo) setAppLogo(data.app_logo);
-    if (data.bill_qr_data) setBillQrData(data.bill_qr_data);
+    try {
+      const res = await fetch("/api/settings");
+      const data = await res.json();
+      if (data.shop_name) setShopName(data.shop_name);
+      if (data.app_theme) setAppTheme(data.app_theme);
+      if (data.app_logo) setAppLogo(data.app_logo);
+      if (data.bill_qr_data) setBillQrData(data.bill_qr_data);
+      saveToLocal("settings", data);
+    } catch (err) {
+      console.error("Failed to fetch settings:", err);
+      const localData = loadFromLocal("settings");
+      if (localData) {
+        if (localData.shop_name) setShopName(localData.shop_name);
+        if (localData.app_theme) setAppTheme(localData.app_theme);
+        if (localData.app_logo) setAppLogo(localData.app_logo);
+        if (localData.bill_qr_data) setBillQrData(localData.bill_qr_data);
+      }
+    }
   };
 
   const fetchSales = async () => {
-    const res = await fetch(`/api/reports/sales?start=${dateRange.start}&end=${dateRange.end}`);
-    const data = await res.json();
-    setSales(data);
+    try {
+      const res = await fetch(`/api/reports/sales?start=${dateRange.start}&end=${dateRange.end}`);
+      const data = await res.json();
+      setSales(data);
+      saveToLocal("sales", data);
+    } catch (err) {
+      console.error("Failed to fetch sales:", err);
+      const localData = loadFromLocal("sales");
+      if (localData) setSales(localData);
+    }
+  };
+
+  const fetchPurchases = async () => {
+    try {
+      const res = await fetch(`/api/purchases?start=${dateRange.start}&end=${dateRange.end}`);
+      const data = await res.json();
+      setPurchases(data);
+      saveToLocal("purchases", data);
+    } catch (err) {
+      console.error("Failed to fetch purchases:", err);
+      const localData = loadFromLocal("purchases");
+      if (localData) setPurchases(localData);
+    }
   };
 
   const fetchAllMembers = async () => {
-    const res = await fetch("/api/members");
-    const data = await res.json();
-    setAllMembers(data);
+    try {
+      const res = await fetch("/api/members");
+      const data = await res.json();
+      setAllMembers(data);
+      saveToLocal("members", data);
+    } catch (err) {
+      console.error("Failed to fetch members:", err);
+      const localData = loadFromLocal("members");
+      if (localData) setAllMembers(localData);
+    }
   };
 
   const fetchMemberHistory = async (phone: string) => {
@@ -1628,6 +1749,20 @@ export default function App() {
     }
   };
 
+  const downloadSummary = async () => {
+    if (!summaryRef.current) return;
+    try {
+      const dataUrl = await toPng(summaryRef.current, { cacheBust: true });
+      const link = document.createElement('a');
+      link.download = `Sales_Summary_${format(new Date(), "yyyy-MM-dd")}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error('Failed to download summary:', err);
+      showNotification("Failed to download summary", "error");
+    }
+  };
+
   const downloadSalesReport = (type: string = "all") => {
     let filteredSales = [...sales];
     let fileName = `Sales_Report_${format(new Date(), "yyyy-MM-dd")}`;
@@ -1754,6 +1889,10 @@ export default function App() {
   const [newProduct, setNewProduct] = useState({ code: "", description: "", category: "", cost_price: 0, qty: 0 });
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newProduct.category) {
+      showNotification("Please select a category", "error");
+      return;
+    }
     const selling_price = newProduct.cost_price * 1.12;
     await fetch("/api/products", {
       method: "POST",
@@ -1761,6 +1900,7 @@ export default function App() {
       body: JSON.stringify({ ...newProduct, selling_price }),
     });
     fetchProducts();
+    fetchCategories();
     setNewProduct({ code: "", description: "", category: "", cost_price: 0, qty: 0 });
   };
 
@@ -1821,6 +1961,7 @@ export default function App() {
         if (res.ok) {
           showNotification(`Successfully imported ${productsToUpload.length} products!`);
           fetchProducts();
+          fetchCategories();
           logEvent("BULK_IMPORT", `Imported ${productsToUpload.length} products via Excel`);
           // Reset file input
           e.target.value = "";
@@ -2430,6 +2571,20 @@ export default function App() {
             >
               <LayoutDashboard size={12} className="shrink-0" />
               {isSidebarOpen && <span className="truncate">Sales Report</span>}
+            </button>
+            <button 
+              onClick={() => setActiveTab("purchases")}
+              className={cn(
+                "flex items-center gap-3 px-4 py-3 rounded-xl transition-all overflow-hidden", 
+                activeTab === "purchases" 
+                  ? cn(getThemeColor("bg"), "bg-opacity-10", getThemeColor("text")) 
+                  : cn(isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-zinc-500 hover:bg-zinc-100"),
+                !isSidebarOpen && "justify-center px-0"
+              )}
+              title={!isSidebarOpen ? "Purchase Report" : ""}
+            >
+              <ArrowLeftRight size={12} className="shrink-0" />
+              {isSidebarOpen && <span className="truncate">Purchase Report</span>}
             </button>
           </>
         )}
@@ -3187,6 +3342,111 @@ export default function App() {
             </motion.div>
           )}
 
+          {activeTab === "purchases" && (
+            <motion.div 
+              key="purchases"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="space-y-8"
+            >
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <h2 className="text-2xl font-bold">Purchase Reports</h2>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full sm:w-auto">
+                  <div className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-xl border w-full sm:w-64 transition-colors",
+                    isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
+                  )}>
+                    <Search size={12} className="text-zinc-500" />
+                    <input 
+                      type="text" 
+                      placeholder="Search by product, code..." 
+                      value={salesSearch}
+                      onChange={(e) => setSalesSearch(e.target.value)}
+                      className={cn("bg-transparent border-none focus:outline-none text-sm w-full", isDark ? "text-white" : "text-zinc-900")}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="date" 
+                      value={dateRange.start}
+                      onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                      className={cn("px-3 py-2 rounded-xl text-xs border focus:outline-none", isDark ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200")}
+                    />
+                    <span className="text-zinc-500">to</span>
+                    <input 
+                      type="date" 
+                      value={dateRange.end}
+                      onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                      className={cn("px-3 py-2 rounded-xl text-xs border focus:outline-none", isDark ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200")}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className={cn("p-6 rounded-3xl border", isDark ? "bg-zinc-900/50 border-zinc-800" : "bg-white border-zinc-100 shadow-sm")}>
+                  <p className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-2">Total Purchases</p>
+                  <p className="text-3xl font-bold">{purchases.length}</p>
+                </div>
+                <div className={cn("p-6 rounded-3xl border", isDark ? "bg-zinc-900/50 border-zinc-800" : "bg-white border-zinc-100 shadow-sm")}>
+                  <p className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-2">Total Qty In</p>
+                  <p className="text-3xl font-bold">{purchases.reduce((sum, p) => sum + p.qty, 0)}</p>
+                </div>
+                <div className={cn("p-6 rounded-3xl border", isDark ? "bg-zinc-900/50 border-zinc-800" : "bg-white border-zinc-100 shadow-sm")}>
+                  <p className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-2">Total Investment</p>
+                  <p className={cn("text-3xl font-bold", getThemeColor("text"))}>
+                    {purchases.reduce((sum, p) => sum + p.total_cost, 0).toFixed(2)} ৳
+                  </p>
+                </div>
+              </div>
+
+              <div className={cn("rounded-3xl border overflow-hidden", isDark ? "bg-zinc-900/50 border-zinc-800" : "bg-white border-zinc-100 shadow-sm")}>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead className={cn("text-zinc-400 text-xs uppercase tracking-wider", isDark ? "bg-zinc-800/50" : "bg-zinc-50")}>
+                      <tr>
+                        <th className="px-6 py-4">Date</th>
+                        <th className="px-6 py-4">Product</th>
+                        <th className="px-6 py-4">Category</th>
+                        <th className="px-6 py-4">Qty In</th>
+                        <th className="px-6 py-4">Cost Price</th>
+                        <th className="px-6 py-4">Total Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody className={cn("divide-y", isDark ? "divide-zinc-800" : "divide-zinc-100")}>
+                      {purchases
+                        .filter(p => 
+                          p.description.toLowerCase().includes(salesSearch.toLowerCase()) || 
+                          p.product_code.toLowerCase().includes(salesSearch.toLowerCase())
+                        )
+                        .map((p) => (
+                          <tr key={p.id} className={cn("transition-all", isDark ? "hover:bg-zinc-800/30" : "hover:bg-zinc-50")}>
+                            <td className="px-6 py-4 text-sm text-zinc-500">
+                              {format(new Date(p.created_at), "dd MMM yyyy HH:mm")}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex flex-col">
+                                <span className="font-bold">{p.description}</span>
+                                <span className="text-xs text-zinc-500 font-mono">{p.product_code}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="px-2 py-1 rounded-lg bg-zinc-100 text-zinc-600 text-[10px] font-bold uppercase">
+                                {p.category || "General"}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 font-bold text-blue-500">+{p.qty}</td>
+                            <td className="px-6 py-4">{p.cost_price.toFixed(2)} ৳</td>
+                            <td className="px-6 py-4 font-bold">{p.total_cost.toFixed(2)} ৳</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           {activeTab === "inventory" && (
             <motion.div 
               key="inventory"
@@ -3333,19 +3593,18 @@ export default function App() {
                   </div>
                   <div>
                     <label className="block text-sm text-zinc-400 mb-2">Category</label>
-                    <input 
-                      type="text" 
+                    <select 
                       required
-                      list="category-list"
                       value={newProduct.category}
                       onChange={e => setNewProduct({...newProduct, category: e.target.value})}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3"
-                    />
-                    <datalist id="category-list">
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white appearance-none"
+                    >
+                      <option value="">Select Category</option>
                       {categories.map(c => (
-                        <option key={c.id} value={c.name} />
+                        <option key={c.id} value={c.name}>{c.name}</option>
                       ))}
-                    </datalist>
+                    </select>
+                    <p className="text-[10px] text-zinc-500 mt-1">Add new categories in Inventory &gt; Category Management</p>
                   </div>
                   <div>
                     <label className="block text-sm text-zinc-400 mb-2">Cost Price</label>
@@ -3483,6 +3742,23 @@ export default function App() {
                 <h2 className="text-2xl font-bold">Sales Reports</h2>
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full sm:w-auto">
                   <div className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-xl border w-full sm:w-48 transition-colors",
+                    isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
+                  )}>
+                    <BarChart3 size={12} className="text-zinc-500" />
+                    <select 
+                      value={reportType}
+                      onChange={(e) => setReportType(e.target.value as any)}
+                      className={cn("bg-transparent border-none focus:outline-none text-sm w-full", isDark ? "text-white" : "text-zinc-900")}
+                    >
+                      <option value="all">Standard Report</option>
+                      <option value="category">Category-wise Report</option>
+                      <option value="product">Product-wise Report</option>
+                      <option value="month">Month-wise Report</option>
+                      <option value="summary">Summary Report</option>
+                    </select>
+                  </div>
+                  <div className={cn(
                     "flex items-center gap-2 px-4 py-2 rounded-xl border w-full sm:w-64 transition-colors",
                     isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
                   )}>
@@ -3495,15 +3771,27 @@ export default function App() {
                       className={cn("bg-transparent border-none focus:outline-none text-sm w-full", isDark ? "text-white" : "text-zinc-900")}
                     />
                   </div>
-                  <button 
-                    onClick={downloadSalesReport}
-                    className={cn(
-                      "px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all border",
-                      isDark ? "bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700" : "bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-50 shadow-sm"
-                    )}
-                  >
-                    <Download size={10} /> Download Report
-                  </button>
+                  {reportType === "summary" ? (
+                    <button 
+                      onClick={downloadSummary}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all border",
+                        isDark ? "bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700" : "bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-50 shadow-sm"
+                      )}
+                    >
+                      <Download size={10} /> Download Summary
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => downloadSalesReport()}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all border",
+                        isDark ? "bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700" : "bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-50 shadow-sm"
+                      )}
+                    >
+                      <Download size={10} /> Download Report
+                    </button>
+                  )}
                   <div className={cn(
                     "flex items-center gap-2 p-2 rounded-2xl border transition-colors",
                     isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"
@@ -3556,52 +3844,182 @@ export default function App() {
 
               <div className={cn("rounded-3xl border overflow-hidden transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left min-w-[800px]">
-                    <thead className={cn("text-zinc-400 text-xs uppercase tracking-wider", isDark ? "bg-zinc-800/50" : "bg-zinc-50")}>
-                      <tr>
-                        <th className="px-6 py-4">Date</th>
-                        <th className="px-6 py-4">Product</th>
-                        <th className="px-6 py-4">Qty</th>
-                        <th className="px-6 py-4">Total</th>
-                        <th className="px-6 py-4">Member</th>
-                        <th className="px-6 py-4 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className={cn("divide-y", isDark ? "divide-zinc-800" : "divide-zinc-100")}>
-                      {sales
-                        .filter(s => 
-                          s.description.toLowerCase().includes(salesSearch.toLowerCase()) || 
-                          s.product_code.toLowerCase().includes(salesSearch.toLowerCase()) || 
-                          (s.transaction_id && s.transaction_id.toLowerCase().includes(salesSearch.toLowerCase())) ||
-                          (s.member_phone && s.member_phone.includes(salesSearch))
-                        )
-                        .map(s => (
-                        <tr key={s.id} className={cn("transition-all", isDark ? "hover:bg-zinc-800/30" : "hover:bg-zinc-50")}>
-                          <td className="px-6 py-4 text-sm">{s.date}</td>
-                          <td className="px-6 py-4">
-                            <div className={cn("font-medium", s.qty < 0 && "text-red-500")}>{s.description}</div>
-                            <div className="text-[10px] text-zinc-500 font-mono">{s.product_code}</div>
-                            {s.transaction_id && (
-                              <div className="text-[8px] text-zinc-600 mt-1 uppercase">{s.transaction_id}</div>
-                            )}
-                          </td>
-                          <td className={cn("px-6 py-4", s.qty < 0 && "text-red-500")}>{s.qty}</td>
-                          <td className={cn("px-6 py-4 font-bold", s.qty < 0 && "text-red-500")}>{(s.total_price || 0).toFixed(2)}</td>
-                          <td className="px-6 py-4 text-zinc-500 text-sm">{s.member_phone || "-"}</td>
-                          <td className="px-6 py-4 text-right">
-                            {s.transaction_id && (
-                              <button 
-                                onClick={() => openBillPreview(s.transaction_id)}
-                                className={cn("text-xs font-bold hover:underline", getThemeColor("text"))}
-                              >
-                                Preview Bill
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  {reportType === "summary" ? (
+                    <div ref={summaryRef} className="p-8 bg-white text-black min-w-[800px]">
+                      <div className="border-2 border-black">
+                        <div className="bg-[#FFCC00] text-center py-2 font-bold text-xl border-b-2 border-black uppercase">
+                          Sales Summary
+                        </div>
+                        <div className="grid grid-cols-2 border-b-2 border-black">
+                          <div className="p-2 font-bold text-center border-r-2 border-black uppercase">Date:</div>
+                          <div className="p-2 text-center">
+                            {dateRange.start === dateRange.end ? dateRange.start : `${dateRange.start} to ${dateRange.end}`}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-5 bg-zinc-50 font-bold text-xs text-center border-b-2 border-black uppercase">
+                          <div className="p-4 border-r-2 border-black flex items-center justify-center">Total Sold Qty</div>
+                          <div className="p-4 border-r-2 border-black flex items-center justify-center">Total Discount or Coupon Applied</div>
+                          <div className="p-4 border-r-2 border-black flex items-center justify-center">Total Cost Value</div>
+                          <div className="p-4 border-r-2 border-black flex items-center justify-center">Total Sold</div>
+                          <div className="p-4 flex items-center justify-center">Net Revenue</div>
+                        </div>
+                        <div className="grid grid-cols-5 text-center text-lg font-bold">
+                          {(() => {
+                            const filtered = sales.filter(s => 
+                              s.description.toLowerCase().includes(salesSearch.toLowerCase()) || 
+                              s.product_code.toLowerCase().includes(salesSearch.toLowerCase()) || 
+                              (s.transaction_id && s.transaction_id.toLowerCase().includes(salesSearch.toLowerCase())) ||
+                              (s.member_phone && s.member_phone.includes(salesSearch))
+                            );
+                            const totalQty = filtered.reduce((sum, s) => sum + s.qty, 0);
+                            const totalDiscount = filtered.reduce((sum, s) => sum + (s.discount || 0), 0);
+                            const totalCost = filtered.reduce((sum, s) => sum + ((s.cost_price || 0) * s.qty), 0);
+                            const totalSold = filtered.reduce((sum, s) => sum + (s.total_price || 0), 0);
+                            const netRevenue = totalSold - totalDiscount - totalCost;
+
+                            return (
+                              <>
+                                <div className="p-6 border-r-2 border-black">{totalQty}</div>
+                                <div className="p-6 border-r-2 border-black">{totalDiscount.toFixed(2)} ৳</div>
+                                <div className="p-6 border-r-2 border-black">{totalCost.toFixed(2)} ৳</div>
+                                <div className="p-6 border-r-2 border-black">{totalSold.toFixed(2)} ৳</div>
+                                <div className="p-6">{netRevenue.toFixed(2)} ৳</div>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <table className="w-full text-left min-w-[800px]">
+                      <thead className={cn("text-zinc-400 text-xs uppercase tracking-wider", isDark ? "bg-zinc-800/50" : "bg-zinc-50")}>
+                        {reportType === "all" ? (
+                          <tr>
+                            <th className="px-6 py-4">Date</th>
+                            <th className="px-6 py-4">Product</th>
+                            <th className="px-6 py-4">Qty</th>
+                            <th className="px-6 py-4">Total</th>
+                            <th className="px-6 py-4">Member</th>
+                            <th className="px-6 py-4 text-right">Actions</th>
+                          </tr>
+                        ) : reportType === "category" ? (
+                          <tr>
+                            <th className="px-6 py-4">Category Name</th>
+                            <th className="px-6 py-4">Total Quantity Sold</th>
+                            <th className="px-6 py-4">Total Revenue</th>
+                            <th className="px-6 py-4 text-right">Share</th>
+                          </tr>
+                        ) : reportType === "product" ? (
+                          <tr>
+                            <th className="px-6 py-4">Product Name</th>
+                            <th className="px-6 py-4">Code</th>
+                            <th className="px-6 py-4">Total Qty</th>
+                            <th className="px-6 py-4">Total Revenue</th>
+                          </tr>
+                        ) : (
+                          <tr>
+                            <th className="px-6 py-4">Month</th>
+                            <th className="px-6 py-4">Total Qty Sold</th>
+                            <th className="px-6 py-4">Total Revenue</th>
+                          </tr>
+                        )}
+                      </thead>
+                      <tbody className={cn("divide-y", isDark ? "divide-zinc-800" : "divide-zinc-100")}>
+                        {(() => {
+                          const filtered = sales.filter(s => 
+                            s.description.toLowerCase().includes(salesSearch.toLowerCase()) || 
+                            s.product_code.toLowerCase().includes(salesSearch.toLowerCase()) || 
+                            (s.transaction_id && s.transaction_id.toLowerCase().includes(salesSearch.toLowerCase())) ||
+                            (s.member_phone && s.member_phone.includes(salesSearch))
+                          );
+
+                          if (reportType === "category") {
+                            const groups: {[key: string]: {qty: number, total: number}} = {};
+                            filtered.forEach(s => {
+                              const cat = s.category || "General";
+                              if (!groups[cat]) groups[cat] = {qty: 0, total: 0};
+                              groups[cat].qty += s.qty;
+                              groups[cat].total += (s.total_price || 0);
+                            });
+                            const totalRev = Object.values(groups).reduce((sum, g) => sum + g.total, 0);
+                            return Object.entries(groups).map(([name, data]) => (
+                              <tr key={name} className={cn("transition-all", isDark ? "hover:bg-zinc-800/30" : "hover:bg-zinc-50")}>
+                                <td className="px-6 py-4 font-bold">{name}</td>
+                                <td className="px-6 py-4">{data.qty}</td>
+                                <td className="px-6 py-4 font-bold">{data.total.toFixed(2)} ৳</td>
+                                <td className="px-6 py-4 text-right text-xs text-zinc-500">
+                                  {totalRev > 0 ? ((data.total / totalRev) * 100).toFixed(1) : 0}%
+                                </td>
+                              </tr>
+                            ));
+                          }
+
+                          if (reportType === "product") {
+                            const groups: {[key: string]: {description: string, code: string, qty: number, total: number}} = {};
+                            filtered.forEach(s => {
+                              const key = s.product_code;
+                              if (!groups[key]) groups[key] = {description: s.description, code: s.product_code, qty: 0, total: 0};
+                              groups[key].qty += s.qty;
+                              groups[key].total += (s.total_price || 0);
+                            });
+                            return Object.values(groups).sort((a, b) => b.total - a.total).map(p => (
+                              <tr key={p.code} className={cn("transition-all", isDark ? "hover:bg-zinc-800/30" : "hover:bg-zinc-50")}>
+                                <td className="px-6 py-4 font-bold">{p.description}</td>
+                                <td className="px-6 py-4 text-sm font-mono text-zinc-500">{p.code}</td>
+                                <td className="px-6 py-4">{p.qty}</td>
+                                <td className="px-6 py-4 font-bold">{p.total.toFixed(2)} ৳</td>
+                              </tr>
+                            ));
+                          }
+
+                          if (reportType === "month") {
+                            const groups: {[key: string]: {month: string, qty: number, total: number}} = {};
+                            filtered.forEach(s => {
+                              const month = s.date.substring(0, 7);
+                              if (!groups[month]) groups[month] = {month, qty: 0, total: 0};
+                              groups[month].qty += s.qty;
+                              groups[month].total += (s.total_price || 0);
+                            });
+                            return Object.entries(groups).map(([month, data]) => ({ month, ...data }))
+                              .sort((a, b) => b.month.localeCompare(a.month))
+                              .map(m => (
+                                <tr key={m.month} className={cn("transition-all", isDark ? "hover:bg-zinc-800/30" : "hover:bg-zinc-50")}>
+                                  <td className="px-6 py-4 font-bold">{format(new Date(m.month + "-01"), "MMMM yyyy")}</td>
+                                  <td className="px-6 py-4">{m.qty}</td>
+                                  <td className="px-6 py-4 font-bold">{m.total.toFixed(2)} ৳</td>
+                                </tr>
+                              ));
+                          }
+
+                          return filtered.map(s => (
+                            <tr key={s.id} className={cn("transition-all", isDark ? "hover:bg-zinc-800/30" : "hover:bg-zinc-50")}>
+                              <td className="px-6 py-4 text-sm">{s.date}</td>
+                              <td className="px-6 py-4">
+                                <div className={cn("font-medium", s.qty < 0 && "text-red-500")}>{s.description}</div>
+                                <div className="text-[10px] text-zinc-500 font-mono">{s.product_code}</div>
+                                {s.transaction_id && (
+                                  <div className="text-[8px] text-zinc-600 mt-1 uppercase">{s.transaction_id}</div>
+                                )}
+                              </td>
+                              <td className={cn("px-6 py-4", s.qty < 0 && "text-red-500")}>{s.qty}</td>
+                              <td className={cn("px-6 py-4 font-bold", s.qty < 0 && "text-red-500")}>{(s.total_price || 0).toFixed(2)}</td>
+                              <td className="px-6 py-4 text-zinc-500 text-sm">{s.member_phone || "-"}</td>
+                              <td className="px-6 py-4 text-right">
+                                {s.transaction_id && (
+                                  <button 
+                                    onClick={() => openBillPreview(s.transaction_id)}
+                                    className={cn("text-xs font-bold hover:underline", getThemeColor("text"))}
+                                  >
+                                    Preview Bill
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ));
+                        })()}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               </div>
             </motion.div>
@@ -3902,6 +4320,27 @@ export default function App() {
                     <Ticket size={14} />
                     Open Coupon Manager
                   </button>
+                </div>
+
+                {/* Local Storage Management */}
+                <div className={cn("p-8 rounded-3xl border space-y-6 transition-colors", isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm")}>
+                  <div className={cn("flex items-center gap-3", getThemeColor("text"))}>
+                    <RefreshCw size={14} />
+                    <h3 className="text-lg font-bold">LOCAL STORAGE</h3>
+                  </div>
+                  <p className="text-sm text-zinc-400">Manage client-side data persistence and cache.</p>
+                  <div className="space-y-4">
+                    <button
+                      onClick={clearLocalCache}
+                      className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded-xl px-4 py-3 flex items-center justify-center gap-2 transition-colors font-bold"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Clear Local Cache
+                    </button>
+                    <p className="text-[10px] text-zinc-500 text-center">
+                      Clears locally saved data (cart, held bills, cached settings). Use if the app behaves unexpectedly.
+                    </p>
+                  </div>
                 </div>
               </div>
             </motion.div>
