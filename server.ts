@@ -280,6 +280,31 @@ async function startServer() {
     }
   });
 
+  app.delete("/api/products/:code", (req, res) => {
+    try {
+      db.prepare("DELETE FROM products WHERE code = ?").run(req.params.code);
+      logEvent("PRODUCT_DELETE", `Deleted product: ${req.params.code}`);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.put("/api/products/:code", (req, res) => {
+    const { description, category, cost_price, selling_price, qty } = req.body;
+    try {
+      db.prepare(`
+        UPDATE products 
+        SET description = ?, category = ?, cost_price = ?, selling_price = ?, qty = ?
+        WHERE code = ?
+      `).run(description, category, cost_price, selling_price, qty, req.params.code);
+      logEvent("PRODUCT_UPDATE", `Updated product: ${req.params.code}`);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
   app.post("/api/products/bulk", (req, res) => {
     const products = req.body;
     if (!Array.isArray(products)) {
@@ -361,8 +386,8 @@ async function startServer() {
 
   app.post("/api/coupons", (req, res) => {
     const { code, discount_type, discount_value, min_range, qty, valid_date } = req.body;
-    if (!code || code.length < 6) {
-      return res.status(400).json({ success: false, message: "Coupon code must be at least 6 characters" });
+    if (!code || code.length < 3) {
+      return res.status(400).json({ success: false, message: "Coupon code must be at least 3 characters" });
     }
     try {
       db.prepare(`
@@ -383,8 +408,8 @@ async function startServer() {
     }
     
     const now = new Date();
-    const validDate = new Date(coupon.valid_date);
-    if (now > validDate) {
+    const todayStr = now.toISOString().split('T')[0];
+    if (todayStr > coupon.valid_date) {
       return res.status(400).json({ success: false, message: "Coupon has expired" });
     }
     

@@ -14,6 +14,7 @@ import {
   Plus, 
   Search, 
   Trash2, 
+  Edit,
   Download, 
   Upload,
   Share2,
@@ -815,8 +816,8 @@ const CouponManagement = ({ onClose, isDark, getThemeColor, showNotification }: 
   }, []);
 
   const handleCreate = async () => {
-    if (newCoupon.code.length < 6) {
-      showNotification("Coupon code must be at least 6 characters", "error");
+    if (newCoupon.code.length < 3) {
+      showNotification("Coupon code must be at least 3 characters", "error");
       return;
     }
     if (newCoupon.discount_value <= 0) {
@@ -1392,8 +1393,8 @@ export default function App() {
   const [showCouponManagement, setShowCouponManagement] = useState(false);
 
   const applyCoupon = async (code: string) => {
-    if (code.length < 6) {
-      setCouponError("Coupon must be at least 6 characters");
+    if (code.length < 3) {
+      setCouponError("Coupon must be at least 3 characters");
       return;
     }
 
@@ -1901,23 +1902,66 @@ export default function App() {
   };
 
   // --- Admin Logic ---
-  const [newProduct, setNewProduct] = useState({ code: "", description: "", category: "", cost_price: 0, qty: 0 });
+  const [newProduct, setNewProduct] = useState({ code: "", description: "", category: "", cost_price: 0, selling_price: 0, qty: 0 });
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProduct.category) {
       showNotification("Please select a category", "error");
       return;
     }
-    const selling_price = newProduct.cost_price * 1.12;
-    await fetch("/api/products", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...newProduct, selling_price }),
-    });
-    fetchProducts();
-    fetchCategories();
-    fetchPurchases();
-    setNewProduct({ code: "", description: "", category: "", cost_price: 0, qty: 0 });
+    
+    try {
+      const res = await fetch("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newProduct),
+      });
+      if (res.ok) {
+        showNotification("Product added successfully", "success");
+        setNewProduct({ code: "", description: "", category: "", cost_price: 0, selling_price: 0, qty: 0 });
+        fetchProducts();
+        fetchCategories();
+        fetchPurchases();
+        setActiveTab("inventory");
+      }
+    } catch (err) {
+      showNotification("Failed to add product", "error");
+    }
+  };
+
+  const deleteProduct = async (code: string) => {
+    if (!window.confirm(`Are you sure you want to delete product ${code}?`)) return;
+    try {
+      const res = await fetch(`/api/products/${code}`, { method: "DELETE" });
+      if (res.ok) {
+        showNotification("Product deleted", "success");
+        fetchProducts();
+      }
+    } catch (err) {
+      showNotification("Failed to delete product", "error");
+    }
+  };
+
+  const handleUpdateProduct = async () => {
+    if (!editingProduct) return;
+    try {
+      const res = await fetch(`/api/products/${editingProduct.code}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editingProduct),
+      });
+      if (res.ok) {
+        showNotification("Product updated", "success");
+        setShowEditModal(false);
+        setEditingProduct(null);
+        fetchProducts();
+      }
+    } catch (err) {
+      showNotification("Failed to update product", "error");
+    }
   };
 
   // --- Dev Logic ---
@@ -2048,7 +2092,8 @@ export default function App() {
 
   const filteredProducts = products.filter(p => 
     p.code.toLowerCase().includes(productSearch.toLowerCase()) || 
-    p.description.toLowerCase().includes(productSearch.toLowerCase())
+    p.description.toLowerCase().includes(productSearch.toLowerCase()) ||
+    (p.category || "").toLowerCase().includes(productSearch.toLowerCase())
   );
 
   useEffect(() => {
@@ -3570,6 +3615,7 @@ export default function App() {
                         <th className="px-6 py-4">Cost</th>
                         <th className="px-6 py-4">Selling</th>
                         <th className="px-6 py-4">Stock</th>
+                        <th className="px-6 py-4 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className={cn("divide-y", isDark ? "divide-zinc-800" : "divide-zinc-100")}>
@@ -3593,6 +3639,25 @@ export default function App() {
                             )}>
                               {p.qty} units
                             </span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex justify-end gap-2">
+                              <button 
+                                onClick={() => {
+                                  setEditingProduct(p);
+                                  setShowEditModal(true);
+                                }}
+                                className="p-2 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all"
+                              >
+                                <Edit size={12} />
+                              </button>
+                              <button 
+                                onClick={() => deleteProduct(p.code)}
+                                className="p-2 rounded-lg hover:bg-red-500/10 text-zinc-400 hover:text-red-500 transition-all"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -3654,7 +3719,20 @@ export default function App() {
                       type="number" 
                       required
                       value={newProduct.cost_price}
-                      onChange={e => setNewProduct({...newProduct, cost_price: Number(e.target.value)})}
+                      onChange={e => {
+                        const cost = Number(e.target.value);
+                        setNewProduct({...newProduct, cost_price: cost, selling_price: Number((cost * 1.12).toFixed(2))});
+                      }}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Selling Price</label>
+                    <input 
+                      type="number" 
+                      required
+                      value={newProduct.selling_price}
+                      onChange={e => setNewProduct({...newProduct, selling_price: Number(e.target.value)})}
                       className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3"
                     />
                   </div>
@@ -3670,8 +3748,8 @@ export default function App() {
                   </div>
                   <div className="flex items-end">
                     <div className={cn("border p-3 rounded-xl w-full", getThemeColor("bg"), "bg-opacity-10", getThemeColor("border").replace("border-", "border-opacity-20 border-"))}>
-                      <div className={cn("text-[10px] uppercase font-bold", getThemeColor("text"))}>Auto Selling Price (+12%)</div>
-                      <div className="text-xl font-bold">{((newProduct.cost_price || 0) * 1.12).toFixed(2)} ৳</div>
+                      <div className={cn("text-[10px] uppercase font-bold", getThemeColor("text"))}>Profit Margin</div>
+                      <div className="text-xl font-bold">{(((newProduct.selling_price - newProduct.cost_price) / (newProduct.cost_price || 1)) * 100).toFixed(1)}%</div>
                     </div>
                   </div>
                   <div className="col-span-2 flex gap-4 mt-4">
@@ -4827,6 +4905,90 @@ export default function App() {
         </AnimatePresence>
       </main>
       <AnimatePresence>
+        {showEditModal && editingProduct && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className={cn(
+                "w-full max-w-2xl rounded-3xl p-8 space-y-6 border shadow-2xl",
+                isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"
+              )}
+            >
+              <div className="flex justify-between items-center">
+                <h3 className="text-2xl font-bold">Edit Product</h3>
+                <button onClick={() => setShowEditModal(false)} className="text-zinc-500 hover:text-red-500">
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-sm text-zinc-400 mb-2">Description</label>
+                  <input 
+                    type="text" 
+                    value={editingProduct.description}
+                    onChange={e => setEditingProduct({...editingProduct, description: e.target.value})}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-2">Category</label>
+                  <select 
+                    value={editingProduct.category}
+                    onChange={e => setEditingProduct({...editingProduct, category: e.target.value})}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white"
+                  >
+                    {categories.map(c => (
+                      <option key={c.id} value={c.name}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-2">Cost Price</label>
+                  <input 
+                    type="number" 
+                    value={editingProduct.cost_price}
+                    onChange={e => setEditingProduct({...editingProduct, cost_price: Number(e.target.value)})}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-2">Selling Price</label>
+                  <input 
+                    type="number" 
+                    value={editingProduct.selling_price}
+                    onChange={e => setEditingProduct({...editingProduct, selling_price: Number(e.target.value)})}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-2">Stock Quantity</label>
+                  <input 
+                    type="number" 
+                    value={editingProduct.qty}
+                    onChange={e => setEditingProduct({...editingProduct, qty: Number(e.target.value)})}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-4 mt-6">
+                <button 
+                  onClick={() => setShowEditModal(false)}
+                  className="flex-1 py-4 rounded-2xl bg-zinc-800 text-zinc-400 font-bold hover:bg-zinc-700"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleUpdateProduct}
+                  className={cn("flex-1 py-4 rounded-2xl text-white font-bold", getThemeColor("bg"))}
+                >
+                  Save Changes
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
         {showCategoryModal && (
           <motion.div 
             initial={{ opacity: 0 }}
